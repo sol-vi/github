@@ -90,7 +90,42 @@ def guess_product(raw_name: str) -> dict:
     }
 
 
-def normalize(rows: list[dict]) -> tuple[list[dict], list[str]]:
+def normalize_key(s: str) -> str:
+    """Code.gs の normalizeKey_() と同じ突き合わせキー。"""
+    s = re.sub(r"[　\s]", "", s)
+    s = s.replace("（", "(").replace("）", ")")
+    s = re.sub(r"[〈〉<>]", "", s)
+    s = re.sub(r"Whisly", "Whisky", s, flags=re.I)
+    return s.lower()
+
+
+def load_product_master(path: Path | None) -> tuple[dict, str]:
+    """Product_Master CSV を読む。無ければ空。"""
+    if not path:
+        return {}, ""
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+
+    master, notice = {}, ""
+    for r in rows:
+        raw = (r.get("商品名") or "").strip()
+        if not raw:
+            continue
+        cost_text = (r.get("原価") or "").strip()
+        master[normalize_key(raw)] = {
+            "name": (r.get("正規化商品名") or "").strip() or raw,
+            "category": (r.get("カテゴリ") or "").strip(),
+            "itemType": (r.get("品目区分") or "").strip(),
+            "cost": parse_number(cost_text),
+            # 空欄と「原価0円」を区別する
+            "hasCost": cost_text != "",
+        }
+        if not notice:
+            notice = (r.get("原価注記") or "").strip()
+    return master, notice
+
+
+def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict], list[str]]:
     warnings: list[str] = []
     skipped_status = 0
     skipped_no_product = 0
@@ -110,6 +145,17 @@ def normalize(rows: list[dict]) -> tuple[list[dict], list[str]]:
             continue
 
         resolved = guess_product(product_raw)
+        hit = (master or {}).get(normalize_key(product_raw))
+        if hit:
+            resolved = {
+                "name": hit["name"] or resolved["name"],
+                "category": hit["category"] or resolved["category"],
+                "itemType": hit["itemType"] or resolved["itemType"],
+                "cost": hit["cost"],
+                "hasCost": hit["hasCost"],
+            }
+        else:
+            resolved = dict(resolved, cost=0.0, hasCost=False)
         if resolved["name"] != product_raw:
             renamed.add(product_raw)
 
@@ -134,6 +180,9 @@ def normalize(rows: list[dict]) -> tuple[list[dict], list[str]]:
             "productRaw": product_raw,
             "category": resolved["category"],
             "itemType": resolved["itemType"],
+            "unitCost": resolved["cost"],
+            "lineCost": resolved["cost"] * parse_number(r.get("発注数")),
+            "hasCost": resolved["hasCost"],
             "segment": (r.get("区分") or "").strip() or BLANK,
             "qty": parse_number(r.get("発注数")),
             "unitPrice": parse_number(r.get("販売価格")),
@@ -151,7 +200,17 @@ def normalize(rows: list[dict]) -> tuple[list[dict], list[str]]:
         warnings.append(f"商品名の表記ゆれ {len(renamed)} 件を正規化しました。")
     if trimmed_types:
         warnings.append(f"顧客種別の前後空白 {trimmed_types} 件を補正しました。")
-    warnings.append("Product_Master シートが無いため、商品カテゴリは商品名の【…】表記から自動判定しています。")
+    if not master:
+        warnings.append("Product_Master シートが無いため、商品カテゴリは商品名の【…】表記から自動判定しています。")
+
+    uncosted = sorted({r["product"] for r in out if not r["hasCost"]})
+    if uncosted:
+        warnings.append(
+            f"原価が未設定の商品が {len(uncosted)} 件あります（"
+            + " / ".join(uncosted[:3])
+            + (" ほか" if len(uncosted) > 3 else "")
+            + "）。粗利はこれらを原価0として計算するため過大に出ます。"
+        )
 
     return out, warnings
 
@@ -167,11 +226,12 @@ def build_options(rows: list[dict]) -> dict:
     return options
 
 
-def build_payload(csv_path: Path) -> dict:
+def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
     with csv_path.open(encoding="utf-8-sig", newline="") as fh:
         raw_rows = list(csv.DictReader(fh))
 
-    rows, warnings = normalize(raw_rows)
+    master, cost_notice = load_product_master(master_path)
+    rows, warnings = normalize(raw_rows, master)
 
     allow = set(B2B_CUSTOMER_TYPES)
     scoped = [r for r in rows if r["customerType"] in allow] if allow else rows
@@ -193,7 +253,12 @@ def build_payload(csv_path: Path) -> dict:
             "coverageTo": dates[-1] if dates else "",
             "scopeCustomerTypes": B2B_CUSTOMER_TYPES,
             "includeStatuses": sorted(INCLUDE_STATUSES),
-            "hasProductMaster": False,
+            "hasProductMaster": bool(master),
+            "costCoverage": {
+                "withCost": len({r["product"] for r in scoped if r["hasCost"]}),
+                "total": len({r["product"] for r in scoped}),
+            },
+            "costNotice": cost_notice,
             "warnings": warnings,
         },
         "options": build_options(scoped),
@@ -246,6 +311,7 @@ def build_html(payload: dict, fmt: str = "standalone") -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--csv", required=True, type=Path)
+    ap.add_argument("--master", type=Path, help="Product_Master CSV（原価・正規化商品名）")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument(
         "--format",
@@ -255,7 +321,7 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    payload = build_payload(args.csv)
+    payload = build_payload(args.csv, args.master)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(build_html(payload, args.format), encoding="utf-8")
 
@@ -266,6 +332,10 @@ def main() -> None:
     print(f"  orders      : {meta['orderCount']:,}")
     print(f"  customers   : {meta['customerCount']:,}")
     print(f"  coverage    : {meta['coverageFrom']} .. {meta['coverageTo']}")
+    cov = meta["costCoverage"]
+    print(f"  cost set    : {cov['withCost']} / {cov['total']} products")
+    if meta["costNotice"]:
+        print(f"  cost notice : {meta['costNotice']}")
     for w in meta["warnings"]:
         print(f"  warning     : {w}")
 

@@ -52,7 +52,8 @@ var DATA = null;                 // GASから受け取ったペイロード
 var state = {
   dim: 'customer',
   grain: 'week',
-  measure: 'sales',              // トレンドの指標：sales | qty
+  measure: 'sales',              // トレンドの指標：sales | gross | qty
+  monthlyDim: 'product',         // 月別比較の行の軸
   multi: {}                      // key -> Set
 };
 FILTER_KEYS.forEach(function (k) { state.multi[k] = new Set(); });
@@ -196,9 +197,39 @@ function initHeader() {
     '※ 売上は明細「小計」（税抜）の合計です。配送料・調整額は含みません。',
     '※ 商品名の表記ゆれは Product_Master / GAS 側で正規化しています。'
   ];
+  notes.push('※ 販売粗利は<b>売上が立っている明細行</b>の「売上 − 原価」です。' +
+    '区分ではなく売上の有無で分けています。区分「サンプル」「協賛」にも売上のある行が実在し、' +
+    '区分で分けるとその売上が粗利計算から漏れるためです。');
+  notes.push('※ 無償提供原価は売上¥0の明細行の原価合計です。販売粗利には含めていません。');
+  notes.push('※ 原価は商品原価＋資材原価（化粧箱・同梱物・ギフト資材）です。配送料は含みません。');
   (m.warnings || []).forEach(function (w) { notes.push('※ ' + esc(w)); });
   notes.push('※ 読込元 <b>' + esc(m.sheet) + '</b>（' + num(m.sourceRows) + '行 → 対象 ' + num(m.rowCount) + '行 / ' + num(m.orderCount) + '受注）');
   $('footer').innerHTML = notes.join('<br>');
+  renderCostBanner(m);
+}
+
+/** 原価の出所を明示する。サンプル原価を実績と誤読させないための帯。 */
+function renderCostBanner(m) {
+  var slot = $('costBanner');
+  var cov = m.costCoverage || { withCost: 0, total: 0 };
+
+  if (!cov.withCost) {
+    slot.innerHTML = '<div class="noticeBox warn"><b>原価が未設定です。</b>' +
+      'Product_Master シートの「原価」列に商品別の標準原価を入力すると、' +
+      '粗利・粗利率・無償提供原価が表示されます。それまでは「原価未設定」と表示します。</div>';
+    return;
+  }
+
+  var parts = [];
+  if (m.costNotice) parts.push('<b>' + esc(m.costNotice) + '</b>');
+  if (cov.withCost < cov.total) {
+    parts.push('原価設定済み <b>' + cov.withCost + ' / ' + cov.total + ' 商品</b>。' +
+      '未設定の商品は原価0として扱うため、粗利は実際より大きく出ます。');
+  } else {
+    parts.push('原価設定済み <b>' + cov.withCost + ' / ' + cov.total + ' 商品</b>（全商品）。');
+  }
+
+  slot.innerHTML = '<div class="noticeBox' + (m.costNotice ? ' warn' : '') + '">' + parts.join(' ') + '</div>';
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +363,7 @@ function resetFilters() {
   $('from').value = DATA.meta.coverageFrom || '';
   $('to').value = DATA.meta.coverageTo || '';
   $('rankSort').value = 'sales_desc';
+  $('monthlySort').value = 'sales_desc';
   $('rotationSort').value = 'rotation_desc';
   $('storeProductSort').value = 'store_asc';
   render();
@@ -400,9 +432,27 @@ function metrics(rows) {
     .map(function (r) { return daysBetween(r.orderDate, r.shipDate); })
     .filter(function (v) { return v !== null && isFinite(v) && v >= 0; });
 
+  // 販売 / 無償 は区分ではなく「売上が立っているか」で分ける。
+  // 区分「サンプル」「協賛」でも売上のある行が実在するため、
+  // 区分で分けるとその売上が粗利計算から漏れてしまう。
+  var sold = rows.filter(function (r) { return r.lineSales > 0; });
+  var free = rows.filter(function (r) { return r.lineSales <= 0; });
+
+  var soldSales = sum(sold, function (r) { return r.lineSales; });
+  var soldCost = sum(sold, function (r) { return r.lineCost || 0; });
+  var freeCost = sum(free, function (r) { return r.lineCost || 0; });
+  var costKnown = rows.some(function (r) { return r.hasCost; });
+
   return {
     sales: sum(rows, function (r) { return r.lineSales; }),
     qty: sum(rows, function (r) { return r.qty; }),
+    costKnown: costKnown,
+    soldSales: soldSales,
+    soldCost: soldCost,
+    grossProfit: costKnown ? soldSales - soldCost : null,
+    grossMargin: (costKnown && soldSales) ? (soldSales - soldCost) / soldSales : null,
+    freeCost: costKnown ? freeCost : null,
+    freeQty: sum(free, function (r) { return r.qty; }),
     orders: orders.length,
     stores: stores,
     repeatRate: orders.length ? repeats / orders.length : 0,
@@ -446,6 +496,9 @@ function renderKpis(rows, prev) {
   var p = prev ? metrics(prev.rows) : null;
 
   $('kpiSales').textContent = yen(m.sales);
+  $('kpiGross').textContent = m.grossProfit === null ? '原価未設定' : yen(m.grossProfit);
+  $('kpiMargin').textContent = m.grossMargin === null ? '原価未設定' : (m.grossMargin * 100).toFixed(1) + '%';
+  $('kpiFreeCost').textContent = m.freeCost === null ? '原価未設定' : yen(m.freeCost);
   $('kpiOrders').textContent = num(m.orders);
   $('kpiStores').textContent = num(m.stores);
   $('kpiQty').textContent = num(m.qty);
@@ -454,6 +507,9 @@ function renderKpis(rows, prev) {
   $('kpiRotation').textContent = m.rotation.toFixed(2) + '回/月';
 
   setDelta('kpiSalesDelta', m.sales, p && p.sales);
+  setDelta('kpiGrossDelta', m.grossProfit, p && p.grossProfit);
+  setDelta('kpiMarginDelta', m.grossMargin, p && p.grossMargin);
+  setDelta('kpiFreeCostDelta', m.freeCost, p && p.freeCost, { higherIsBetter: false });
   setDelta('kpiOrdersDelta', m.orders, p && p.orders);
   setDelta('kpiStoresDelta', m.stores, p && p.stores);
   setDelta('kpiQtyDelta', m.qty, p && p.qty);
@@ -472,15 +528,25 @@ function group(rows, key) {
   rows.forEach(function (r) {
     var k = r[key] || '未入力';
     if (!map.has(k)) {
-      map.set(k, { name: k, sales: 0, qty: 0, orders: new Set(), customers: new Set() });
+      map.set(k, {
+        name: k, sales: 0, qty: 0, soldSales: 0, soldCost: 0, freeCost: 0,
+        costKnown: false, orders: new Set(), customers: new Set()
+      });
     }
     var x = map.get(k);
     x.sales += r.lineSales;
     x.qty += r.qty;
+    if (r.lineSales > 0) { x.soldSales += r.lineSales; x.soldCost += r.lineCost || 0; }
+    else { x.freeCost += r.lineCost || 0; }
+    if (r.hasCost) x.costKnown = true;
     x.orders.add(r.orderNo);
     x.customers.add(r.customer);
   });
-  return Array.from(map.values());
+  return Array.from(map.values()).map(function (x) {
+    x.gross = x.costKnown ? x.soldSales - x.soldCost : null;
+    x.margin = (x.costKnown && x.soldSales) ? x.gross / x.soldSales : null;
+    return x;
+  });
 }
 
 /** データ内に存在する区分を、既定順→出現順で並べる（§17 新区分の自動追加）。 */
@@ -521,9 +587,12 @@ function series(rows, grain) {
     var k = bucketKey(r[basis], grain);
     if (!k) return;
     if (!map.has(k)) {
-      var segSales = {}, segQty = {};
-      segs.forEach(function (s) { segSales[s] = 0; segQty[s] = 0; });
-      map.set(k, { key: k, sales: 0, qty: 0, orders: new Set(), segSales: segSales, segQty: segQty });
+      var segSales = {}, segQty = {}, segGross = {};
+      segs.forEach(function (s) { segSales[s] = 0; segQty[s] = 0; segGross[s] = 0; });
+      map.set(k, {
+        key: k, sales: 0, qty: 0, gross: 0, orders: new Set(),
+        segSales: segSales, segQty: segQty, segGross: segGross
+      });
     }
     var b = map.get(k);
     var seg = r.segment || '未入力';
@@ -532,6 +601,11 @@ function series(rows, grain) {
     b.orders.add(r.orderNo);
     b.segSales[seg] += r.lineSales;
     b.segQty[seg] += r.qty;
+    if (r.lineSales > 0) {
+      var g = r.lineSales - (r.lineCost || 0);
+      b.gross += g;
+      b.segGross[seg] += g;
+    }
   });
 
   var arr = Array.from(map.values()).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
@@ -551,13 +625,15 @@ function renderTrend(rows) {
 
   // 売上で積むとサンプル・協賛が¥0のため単色に潰れる。数量でも見られるようにする。
   var isQty = state.measure === 'qty';
-  var segOf = function (b) { return isQty ? b.segQty : b.segSales; };
-  var totalOf = function (b) { return isQty ? b.qty : b.sales; };
+  var isGross = state.measure === 'gross';
+  var segOf = function (b) { return isQty ? b.segQty : isGross ? b.segGross : b.segSales; };
+  var totalOf = function (b) { return isQty ? b.qty : isGross ? b.gross : b.sales; };
   var fmtLeft = isQty ? function (v) { return num(v) + '点'; } : compactYen;
   var fmtVal = isQty ? function (v) { return num(v) + '点'; } : yen;
 
-  $('trendHint').textContent = isQty
-    ? '棒＝区分別 発注数量（積み上げ）／折れ線＝受注件数'
+  $('trendHint').textContent =
+    isQty ? '棒＝区分別 発注数量（積み上げ）／折れ線＝受注件数'
+    : isGross ? '棒＝区分別 販売粗利（積み上げ）／折れ線＝受注件数'
     : '棒＝区分別 商品売上（積み上げ）／折れ線＝受注件数';
 
   $('trendLegend').innerHTML = s.segments.map(function (seg, i) {
@@ -623,7 +699,7 @@ function renderTrend(rows) {
       esc(bucketLabel(d.key, state.grain)) + '</text>');
   });
 
-  out.push('<text x="' + pad.l + '" y="' + (H - 6) + '" font-size="9" fill="' + C.muted + '">' + (isQty ? '発注数量' : '商品売上') + '（左軸）</text>');
+  out.push('<text x="' + pad.l + '" y="' + (H - 6) + '" font-size="9" fill="' + C.muted + '">' + (isQty ? '発注数量' : isGross ? '販売粗利' : '商品売上') + '（左軸）</text>');
   out.push('<text x="' + (W - pad.r) + '" y="' + (H - 6) + '" text-anchor="end" font-size="9" fill="' + C.muted + '">受注件数（右軸）</text>');
 
   svg.innerHTML = out.join('');
@@ -798,7 +874,17 @@ function renderRank(rows) {
   var mode = $('rankSort').value;
 
   arr.sort(function (a, b) {
+    // 粗利率が出せない（原価未設定・売上なし）行は、昇順でも降順でも末尾に置く。
+    // 「粗利率が最も低い」と読み違えられるため。
+    var known = function (x) { return x.margin !== null; };
+    if (mode === 'margin_desc' || mode === 'margin_asc') {
+      if (known(a) !== known(b)) return known(a) ? -1 : 1;
+    }
+    var nz = function (v) { return v === null ? -Infinity : v; };
     switch (mode) {
+      case 'gross_desc': return nz(b.gross) - nz(a.gross) || b.sales - a.sales;
+      case 'margin_desc': return nz(b.margin) - nz(a.margin) || b.sales - a.sales;
+      case 'margin_asc': return nz(a.margin) - nz(b.margin) || b.sales - a.sales;
       case 'qty_desc': return b.qty - a.qty || b.sales - a.sales;
       case 'orders_desc': return b.orders.size - a.orders.size || b.sales - a.sales;
       case 'customers_desc': return b.customers.size - a.customers.size || b.sales - a.sales;
@@ -814,23 +900,223 @@ function renderRank(rows) {
     return;
   }
 
-  var max = Math.max.apply(null, arr.map(function (x) {
-    return mode === 'qty_desc' ? x.qty : x.sales;
-  }).concat([1]));
+  // バーの基準は並び替えに合わせる。粗利率は比率なので売上を基準に描く。
+  var basisOf = function (x) {
+    if (mode === 'qty_desc') return x.qty;
+    if (mode === 'gross_desc') return Math.max(0, x.gross || 0);
+    return x.sales;
+  };
+  var max = Math.max.apply(null, arr.map(basisOf).concat([1]));
 
   el.innerHTML = arr.map(function (x, i) {
-    var basis = mode === 'qty_desc' ? x.qty : x.sales;
+    var basis = basisOf(x);
     var width = Math.max(basis > 0 ? 3 : 0, basis / max * 100);
-    var value = mode === 'qty_desc' ? num(x.qty) + '点' : yen(x.sales);
+    var value =
+      mode === 'qty_desc' ? num(x.qty) + '点'
+      : mode === 'gross_desc' ? (x.gross === null ? '原価未設定' : yen(x.gross))
+      : (mode === 'margin_desc' || mode === 'margin_asc')
+        ? (x.margin === null ? (x.soldSales ? '原価未設定' : '売上なし') : (x.margin * 100).toFixed(1) + '%')
+      : yen(x.sales);
+    var grossText = !x.costKnown ? '粗利 原価未設定'
+      : !x.soldSales ? '粗利 売上なし'
+      : '粗利 ' + yen(x.gross) + '（' + (x.margin * 100).toFixed(1) + '%）';
     return '<div class="rankRow">' +
       '<div class="rankName"><b>' + (i + 1) + '. ' + esc(x.name) + '</b>' +
-      '<span class="rankSub">' + x.orders.size + '受注 / ' + num(x.qty) + '点 / ' + x.customers.size + '店舗</span></div>' +
+      '<span class="rankSub">' + x.orders.size + '受注 / ' + num(x.qty) + '点 / ' +
+      x.customers.size + '店舗 / ' + grossText + '</span></div>' +
       '<div class="track"><div class="fill' + (mode === 'qty_desc' ? ' silver' : '') + '" style="width:' + width + '%"></div></div>' +
       '<div class="rankValue">' + value + '</div>' +
       '</div>';
   }).join('');
 
   $('rankCount').textContent = '全 ' + num(arr.length) + ' 件を表示（スクロール）';
+}
+
+// ---------------------------------------------------------------------------
+// Monthly × Product
+// 1行 = 1商品（またはカテゴリ・店舗）。月を2段ヘッダーで列展開する。
+// ---------------------------------------------------------------------------
+
+function daysInMonth(ym) {
+  var p = ym.split('-');
+  return new Date(Number(p[0]), Number(p[1]), 0).getDate();
+}
+
+function monthlyMatrix(rows) {
+  var basis = basisKey();
+  var months = [];
+  var seen = {};
+  var map = new Map();
+
+  // 先に月と最終日を把握する。最終月が月末まで無い（部分月）なら、
+  // 前月も同じ日数だけに切って比較しないと増減が実態とかけ離れる。
+  var maxDate = '';
+  rows.forEach(function (r) {
+    var d = r[basis];
+    if (!d) return;
+    var m = d.slice(0, 7);
+    if (!seen[m]) { seen[m] = true; months.push(m); }
+    if (d > maxDate) maxDate = d;
+  });
+  months.sort();
+
+  var lastMonth = months[months.length - 1];
+  var prevMonth = months.length >= 2 ? months[months.length - 2] : null;
+  var cutoffDay = maxDate ? Number(maxDate.slice(8, 10)) : 0;
+  var isPartial = !!lastMonth && cutoffDay > 0 && cutoffDay < daysInMonth(lastMonth);
+
+  rows.forEach(function (r) {
+    var d = r[basis];
+    if (!d) return;
+    var m = d.slice(0, 7);
+
+    var k = r[state.monthlyDim] || '未入力';
+    if (!map.has(k)) {
+      map.set(k, {
+        name: k, cells: {}, totalSales: 0, totalQty: 0, totalGross: 0,
+        costKnown: false, cmpLast: 0, cmpPrev: 0
+      });
+    }
+    var x = map.get(k);
+    if (!x.cells[m]) x.cells[m] = { sales: 0, qty: 0, gross: 0 };
+    var c = x.cells[m];
+
+    // 増減の比較用。部分月のときは前月も同じ日数までに揃える。
+    var day = Number(d.slice(8, 10));
+    if (m === lastMonth) x.cmpLast += r.lineSales;
+    if (m === prevMonth && (!isPartial || day <= cutoffDay)) x.cmpPrev += r.lineSales;
+
+    c.sales += r.lineSales;
+    c.qty += r.qty;
+    x.totalSales += r.lineSales;
+    x.totalQty += r.qty;
+    if (r.lineSales > 0) {
+      var g = r.lineSales - (r.lineCost || 0);
+      c.gross += g;
+      x.totalGross += g;
+    }
+    if (r.hasCost) x.costKnown = true;
+  });
+
+  var list = Array.from(map.values()).map(function (x) {
+    x.growth = prevMonth === null ? null : x.cmpLast - x.cmpPrev;
+    x.growthRate = (prevMonth === null || x.cmpPrev === 0) ? null : (x.cmpLast - x.cmpPrev) / x.cmpPrev;
+    x.gross = x.costKnown ? x.totalGross : null;
+    return x;
+  });
+
+  return {
+    months: months,
+    rows: list,
+    lastMonth: lastMonth,
+    prevMonth: prevMonth,
+    isPartial: isPartial,
+    cutoffDay: cutoffDay
+  };
+}
+
+function sortMonthly(list) {
+  var mode = $('monthlySort').value;
+  var copy = list.slice();
+  var nz = function (v) { return v === null ? -Infinity : v; };
+  switch (mode) {
+    case 'qty_desc': return copy.sort(function (a, b) { return b.totalQty - a.totalQty || b.totalSales - a.totalSales; });
+    case 'growth_desc': return copy.sort(function (a, b) { return nz(b.growth) - nz(a.growth); });
+    case 'growth_asc': return copy.sort(function (a, b) {
+      return (a.growth === null ? Infinity : a.growth) - (b.growth === null ? Infinity : b.growth);
+    });
+    case 'name_asc': return copy.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); });
+    default: return copy.sort(function (a, b) { return b.totalSales - a.totalSales || b.totalQty - a.totalQty; });
+  }
+}
+
+function monthLabel(m) {
+  var p = m.split('-');
+  return p[0].slice(2) + '/' + p[1];
+}
+
+function renderMonthly(rows) {
+  var mx = monthlyMatrix(rows);
+  var months = mx.months;
+  var data = sortMonthly(mx.rows);
+  var dimLabel = { product: '商品', category: 'カテゴリ', customer: '店舗・取引先' }[state.monthlyDim];
+
+  if (!months.length || !data.length) {
+    $('monthlyHead').innerHTML = '';
+    $('monthlyBody').innerHTML = '<tr><td class="empty">対象データがありません</td></tr>';
+    $('monthlyFoot').innerHTML = '';
+    $('monthlyCount').textContent = '';
+    return;
+  }
+
+  $('monthlyHead').innerHTML =
+    '<tr>' +
+      '<th rowspan="2">' + esc(dimLabel) + '</th>' +
+      months.map(function (m) {
+        var partial = (mx.isPartial && m === mx.lastMonth)
+          ? '<br><span style="font-weight:400;font-size:9px">1〜' + mx.cutoffDay + '日</span>'
+          : '';
+        return '<th class="segmentGroup" colspan="2">' + esc(monthLabel(m)) + partial + '</th>';
+      }).join('') +
+      '<th class="segmentGroup" colspan="2">期間合計</th>' +
+      '<th rowspan="2" class="n">直近増減</th>' +
+    '</tr>' +
+    '<tr>' +
+      months.map(function () {
+        return '<th class="segmentSub">売上</th><th class="segmentSub">数量</th>';
+      }).join('') +
+      '<th class="segmentSub">売上</th><th class="segmentSub">数量</th>' +
+    '</tr>';
+
+  $('monthlyBody').innerHTML = data.map(function (x) {
+    var cells = months.map(function (m) {
+      var c = x.cells[m] || { sales: 0, qty: 0 };
+      return '<td class="segSales' + (c.sales === 0 ? ' zero' : '') + '">' + yen(c.sales) + '</td>' +
+        '<td class="segQty' + (c.qty === 0 ? ' zero' : '') + '">' + num(c.qty) + '</td>';
+    }).join('');
+
+    var growth = x.growth === null
+      ? '<span class="badge silver">比較なし</span>'
+      : (x.growth === 0
+          ? '<span class="badge silver">±0</span>'
+          : '<span class="badge' + (x.growth < 0 ? ' flag' : '') + '">' +
+            (x.growth > 0 ? '▲' : '▼') + yen(Math.abs(x.growth)).slice(1) +
+            (x.growthRate === null ? '' : '（' + (x.growthRate > 0 ? '+' : '') + (x.growthRate * 100).toFixed(0) + '%）') +
+            '</span>');
+
+    return '<tr>' +
+      '<td class="name2" title="' + esc(x.name) + '">' + esc(x.name) + '</td>' +
+      cells +
+      '<td class="segSales">' + yen(x.totalSales) + '</td>' +
+      '<td class="segQty">' + num(x.totalQty) + '</td>' +
+      '<td class="n">' + growth + '</td>' +
+      '</tr>';
+  }).join('');
+
+  var footCells = months.map(function (m) {
+    var sales = 0, qty = 0;
+    data.forEach(function (x) {
+      var c = x.cells[m];
+      if (c) { sales += c.sales; qty += c.qty; }
+    });
+    return '<td class="segSales">' + yen(sales) + '</td><td class="segQty">' + num(qty) + '</td>';
+  }).join('');
+
+  $('monthlyFoot').innerHTML = '<tr>' +
+    '<td>合計 ' + num(data.length) + ' 件</td>' + footCells +
+    '<td class="segSales">' + yen(sum(data, function (x) { return x.totalSales; })) + '</td>' +
+    '<td class="segQty">' + num(sum(data, function (x) { return x.totalQty; })) + '</td>' +
+    '<td class="n">—</td></tr>';
+
+  var cmpNote = '';
+  if (mx.prevMonth) {
+    cmpNote = mx.isPartial
+      ? '　増減 = ' + monthLabel(mx.lastMonth) + '（1〜' + mx.cutoffDay + '日）− ' +
+        monthLabel(mx.prevMonth) + '（1〜' + mx.cutoffDay + '日）※同日数で比較'
+      : '　増減 = ' + monthLabel(mx.lastMonth) + ' − ' + monthLabel(mx.prevMonth);
+  }
+  $('monthlyCount').textContent =
+    '全 ' + num(data.length) + ' 件（' + dimLabel + '別）／' + months.length + ' か月を列展開' + cmpNote;
 }
 
 // ---------------------------------------------------------------------------
@@ -844,11 +1130,16 @@ function storeRotation(rows) {
   rows.forEach(function (r) {
     var k = r.customer || '未入力';
     if (!by.has(k)) {
-      by.set(k, { name: k, orders: new Map(), sales: 0, qty: 0, products: new Map() });
+      by.set(k, {
+        name: k, orders: new Map(), sales: 0, qty: 0,
+        soldSales: 0, soldCost: 0, costKnown: false, products: new Map()
+      });
     }
     var s = by.get(k);
     s.sales += r.lineSales;
     s.qty += r.qty;
+    if (r.lineSales > 0) { s.soldSales += r.lineSales; s.soldCost += r.lineCost || 0; }
+    if (r.hasCost) s.costKnown = true;
     var pk = r.product || '未入力';
     s.products.set(pk, (s.products.get(pk) || 0) + r.qty);
     if (!s.orders.has(r.orderNo)) s.orders.set(r.orderNo, r[basis] || r.orderDate);
@@ -872,6 +1163,8 @@ function storeRotation(rows) {
       last: ds.length ? ds[ds.length - 1] : '',
       sales: s.sales,
       qty: s.qty,
+      gross: s.costKnown ? s.soldSales - s.soldCost : null,
+      margin: (s.costKnown && s.soldSales) ? (s.soldSales - s.soldCost) / s.soldSales : null,
       products: Array.from(s.products.entries()).sort(function (a, b) { return b[1] - a[1]; })
     };
   });
@@ -883,6 +1176,9 @@ function sortRotation(arr) {
   switch (mode) {
     case 'count_desc': return copy.sort(function (a, b) { return b.count - a.count || b.sales - a.sales; });
     case 'sales_desc': return copy.sort(function (a, b) { return b.sales - a.sales || b.count - a.count; });
+    case 'gross_desc': return copy.sort(function (a, b) {
+      return (b.gross === null ? -Infinity : b.gross) - (a.gross === null ? -Infinity : a.gross) || b.sales - a.sales;
+    });
     case 'interval_asc': return copy.sort(function (a, b) {
       return (a.avgInterval === null ? Infinity : a.avgInterval) - (b.avgInterval === null ? Infinity : b.avgInterval) || b.count - a.count;
     });
@@ -913,15 +1209,19 @@ function renderRotation(rows) {
       '<td class="n">' + (x.avgInterval === null ? '—' : x.avgInterval.toFixed(1) + '日') + '</td>' +
       '<td>' + fmtDate(x.last) + '</td>' +
       '<td class="n">' + yen(x.sales) + '</td>' +
+      '<td class="n">' + (x.gross === null ? '—' :
+        yen(x.gross) + (x.margin === null ? '' : ' <span class="badge silver">' + (x.margin * 100).toFixed(0) + '%</span>')) + '</td>' +
       '<td class="productQtyCell"><div class="productChips">' + chips + extra + '</div></td>' +
       '</tr>';
-  }).join('') || '<tr><td colspan="7" class="empty">対象データがありません</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="empty">対象データがありません</td></tr>';
 
   $('rotationFoot').innerHTML = arr.length
     ? '<tr><td>合計 ' + num(arr.length) + ' 店舗</td>' +
       '<td class="n">' + num(sum(arr, function (x) { return x.count; })) + '</td>' +
       '<td class="n">—</td><td class="n">—</td><td>—</td>' +
       '<td class="n">' + yen(sum(arr, function (x) { return x.sales; })) + '</td>' +
+      '<td class="n">' + (arr.some(function (x) { return x.gross !== null; })
+        ? yen(sum(arr, function (x) { return x.gross || 0; })) : '—') + '</td>' +
       '<td>' + num(sum(arr, function (x) { return x.qty; })) + '本</td></tr>'
     : '';
 
@@ -1170,6 +1470,7 @@ function render() {
   renderCategory(rows);
   renderWeekday(rows);
   renderRank(rows);
+  renderMonthly(rows);
   renderRotation(rows);
   renderStoreProducts(rows);
   renderInsights(rows, prev);
@@ -1185,6 +1486,7 @@ function bindEvents() {
   });
 
   $('rankSort').addEventListener('change', function () { renderRank(currentRows()); });
+  $('monthlySort').addEventListener('change', function () { renderMonthly(currentRows()); });
   $('rotationSort').addEventListener('change', function () { renderRotation(currentRows()); });
   $('storeProductSort').addEventListener('change', function () { renderStoreProducts(currentRows()); });
   $('reset').addEventListener('click', resetFilters);
@@ -1195,6 +1497,15 @@ function bindEvents() {
       btn.classList.add('active');
       state.dim = btn.getAttribute('data-dim');
       renderRank(currentRows());
+    });
+  });
+
+  document.querySelectorAll('.tab[data-monthly-dim]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab[data-monthly-dim]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.monthlyDim = btn.getAttribute('data-monthly-dim');
+      renderMonthly(currentRows());
     });
   });
 

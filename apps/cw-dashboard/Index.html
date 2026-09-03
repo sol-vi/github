@@ -150,12 +150,38 @@
          KPI Cards（§11）
          前期＝同じ日数だけ手前にずらした期間。
          ====================================================== -->
+    <div id="costBanner"></div>
+
     <section class="kpis" aria-label="主要指標">
-      <div class="card kpi accent">
+      <div class="card kpi">
         <div class="label">商品売上</div>
         <div class="value" id="kpiSales">—</div>
         <div id="kpiSalesDelta"></div>
         <div class="note">明細「小計」合計・税抜</div>
+      </div>
+      <div class="card kpi accent">
+        <div class="label">販売粗利</div>
+        <div class="value" id="kpiGross">—</div>
+        <div id="kpiGrossDelta"></div>
+        <div class="note">売上のある行の 売上 − 原価</div>
+      </div>
+      <div class="card kpi accent">
+        <div class="label">粗利率</div>
+        <div class="value" id="kpiMargin">—</div>
+        <div id="kpiMarginDelta"></div>
+        <div class="note">販売粗利 / 商品売上</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">無償提供原価</div>
+        <div class="value" id="kpiFreeCost">—</div>
+        <div id="kpiFreeCostDelta"></div>
+        <div class="note">売上¥0の行の原価合計</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">発注数量</div>
+        <div class="value" id="kpiQty">—</div>
+        <div id="kpiQtyDelta"></div>
+        <div class="note">販売・サンプル等を含む</div>
       </div>
       <div class="card kpi">
         <div class="label">受注件数</div>
@@ -168,12 +194,6 @@
         <div class="value" id="kpiStores">—</div>
         <div id="kpiStoresDelta"></div>
         <div class="note">対象期間内ユニーク</div>
-      </div>
-      <div class="card kpi">
-        <div class="label">発注数量</div>
-        <div class="value" id="kpiQty">—</div>
-        <div id="kpiQtyDelta"></div>
-        <div class="note">販売・サンプル等を含む</div>
       </div>
       <div class="card kpi">
         <div class="label">リピート受注率</div>
@@ -208,6 +228,7 @@
           </div>
           <div class="chartTools">
             <button class="tab sm active" data-measure="sales" type="button">売上</button>
+            <button class="tab sm" data-measure="gross" type="button">粗利</button>
             <button class="tab sm" data-measure="qty" type="button">数量</button>
             <span aria-hidden="true" style="width:8px"></span>
             <button class="tab sm" data-grain="day" type="button">日次</button>
@@ -298,6 +319,9 @@
           <label>並び替え
             <select id="rankSort">
               <option value="sales_desc">商品売上：高い順</option>
+              <option value="gross_desc">販売粗利：高い順</option>
+              <option value="margin_desc">粗利率：高い順</option>
+              <option value="margin_asc">粗利率：低い順</option>
               <option value="qty_desc">発注数量：多い順</option>
               <option value="orders_desc">受注件数：多い順</option>
               <option value="customers_desc">店舗数：多い順</option>
@@ -308,6 +332,48 @@
       </div>
       <div id="rankList" class="rankList"></div>
       <div class="rowCount" id="rankCount"></div>
+    </section>
+
+    <!-- ======================================================
+         Monthly × Product
+         1商品 = 1行。月を2段ヘッダーで列展開する（§17と同じ形）。
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">MONTHLY × PRODUCT</div>
+          <h2>月別 商品別 売上・数量比較</h2>
+          <div class="hint">
+            1商品を1行で表示し、月ごとの「売上金額 / 発注数量」を列で比較します。
+            期間を広げると列が自動で増えます。直近増減は最終月と直前月の比較で、
+            最終月が月途中までのときは前月も同じ日数に揃えて比較します。
+          </div>
+        </div>
+        <div class="sortTools">
+          <div class="tabs">
+            <button class="tab sm active" data-monthly-dim="product" type="button">商品別</button>
+            <button class="tab sm" data-monthly-dim="category" type="button">カテゴリ別</button>
+            <button class="tab sm" data-monthly-dim="customer" type="button">店舗別</button>
+          </div>
+          <label>並び替え
+            <select id="monthlySort">
+              <option value="sales_desc">合計売上：高い順</option>
+              <option value="qty_desc">合計数量：多い順</option>
+              <option value="growth_desc">直近増減：大きい順</option>
+              <option value="growth_asc">直近増減：小さい順</option>
+              <option value="name_asc">名称：昇順</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="tableWrap" style="max-height:560px">
+        <table class="detailTable">
+          <thead id="monthlyHead"></thead>
+          <tbody id="monthlyBody"></tbody>
+          <tfoot id="monthlyFoot"></tfoot>
+        </table>
+      </div>
+      <div class="rowCount" id="monthlyCount"></div>
     </section>
 
     <!-- ======================================================
@@ -326,6 +392,7 @@
                 <option value="rotation_desc">月平均回転：高い順</option>
                 <option value="count_desc">受注回数：多い順</option>
                 <option value="sales_desc">商品売上：高い順</option>
+                <option value="gross_desc">販売粗利：高い順</option>
                 <option value="interval_asc">平均発注間隔：短い順</option>
                 <option value="last_desc">最終受注：新しい順</option>
                 <option value="name_asc">店舗名：昇順</option>
@@ -344,6 +411,7 @@
                 <th class="n">平均発注間隔</th>
                 <th>最終受注</th>
                 <th class="n">商品売上</th>
+                <th class="n">販売粗利</th>
                 <th>注文商品別本数</th>
               </tr>
             </thead>

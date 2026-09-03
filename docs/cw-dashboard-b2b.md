@@ -13,6 +13,7 @@ Google Spreadsheet → GAS → HTML 構成の社内Dashboardページ。
 | `apps/cw-dashboard/Scripts.html` | データ取得・集計・描画・フィルター・並び替え |
 | `apps/cw-dashboard/appsscript.json` | GASプロジェクト設定 |
 | `apps/cw-dashboard/tools/build_preview.py` | GAS無しで開けるプレビューHTMLの生成 |
+| `apps/cw-dashboard/tools/build_product_master.py` | `Product_Master` のひな形生成（原価入力用） |
 | `apps/cw-dashboard/preview/b2b.html` | 上記の生成物（自動生成・直接編集しない） |
 
 `Styles.html` はページ間で共有する。**在庫・EC・SNS等を追加するときも、このファイルを
@@ -65,6 +66,17 @@ Google Spreadsheet → GAS → HTML 構成の社内Dashboardページ。
 | `正規化商品名` | 表示・集計に使う正式名 |
 | `カテゴリ` | `ビール` / `ウイスキー` / `リキュール` / `化粧箱` / `同梱物` / `ギフト資材` |
 | `品目区分` | `完成品` / `資材` |
+| `標準販売価格` | 参考表示用（集計には使わない） |
+| `原価` | **粗利の算出元**。1商品＝1値の標準原価。空欄と`0`は区別され、空欄なら「原価未設定」と表示 |
+| `原価注記` | 原価の出所を1行で書くと、画面上部に帯で表示される（サンプル原価の誤読防止） |
+
+ひな形は次のコマンドで生成できる。
+
+```bash
+# 原価列が空のテンプレート（これに実原価を入力する）
+python3 apps/cw-dashboard/tools/build_product_master.py \
+  --csv data/RAW_B2B_sample.csv --out data/Product_Master_template.csv
+```
 
 突き合わせは `normalizeKey_()` で行うため、空白・全半角括弧・`〈〉`・
 `Whisly`/`Whisky` の違いは吸収される。
@@ -108,8 +120,15 @@ Spreadsheetを更新したあとは、Dashboardを再読み込みすれば最新
 ```bash
 python3 apps/cw-dashboard/tools/build_preview.py \
   --csv data/RAW_B2B_sample.csv \
+  --master data/Product_Master_sample.csv \
   --out apps/cw-dashboard/preview/b2b.html
 ```
+
+`--master` は任意。省略すると原価が読まれず、粗利は「原価未設定」と表示される。
+
+> `data/Product_Master_sample.csv` の原価は**サンプル値**（完成品＝標準販売価格×40%、
+> 資材＝カテゴリ別の定額）で、実原価ではない。`原価注記` 列に書いた文言が画面上部の
+> 帯に出るので、実原価に差し替えるときはこの列も空にすること。
 
 `Index.html` / `Styles.html` / `Scripts.html` は本番と同一のものを使い、
 `getDashboardData()` の返り値だけを `window.__CW_PREVIEW_DATA__` として注入する。
@@ -127,11 +146,12 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 | Header | — | タイトル / 更新日時 / 対象スコープ / データ期間 |
 | Navigation | — | Overview / Sales / SCM / Marketing / Report（未実装ページはグレーアウト） |
 | Filter Area | — | 3列グリッド。**リセットは右下固定** |
-| KPI Cards | — | 7指標＋前期比バッジ |
-| Trend | `TREND` | 区分別 積み上げ棒＋受注件数ライン。売上/数量・日次/週次/月次 切替 |
+| KPI Cards | — | 10指標（売上・粗利・粗利率・無償提供原価ほか）＋前期比バッジ |
+| Trend | `TREND` | 区分別 積み上げ棒＋受注件数ライン。売上/粗利/数量・日次/週次/月次 切替 |
 | Operating Signals | `OPERATING SIGNAL` | 入力率・TOP商品・再発注実績・サンプル比率・前期比 |
 | Mix / Category / Weekday | `MIX` `CATEGORY` `WEEKDAY` | 顧客種別ドーナツ／カテゴリ複合／曜日別 |
 | Breakdown | `BREAKDOWN` | 7軸タブ切替＋並び替え |
+| Monthly × Product | `MONTHLY × PRODUCT` | **1商品 = 1行**。月を2段ヘッダーで「売上 / 数量」に列展開。商品／カテゴリ／店舗で軸切替 |
 | Store Rotation | `STORE ROTATION` | 店舗別 再発注回転＋フォロー候補 |
 | Store × Product | `STORE × PRODUCT` | **1店舗 × 1商品 = 1行**。区分は2段ヘッダーで列展開 |
 
@@ -148,6 +168,10 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 | 指標 | 定義 |
 |---|---|
 | 商品売上 | 明細 `小計` の合計（税抜）。配送料・調整額は含まない |
+| 販売粗利 | **売上が立っている明細行**の `小計 − 原価`。原価 = `発注数 × Product_Master.原価` |
+| 粗利率 | 販売粗利 ÷ 商品売上 |
+| 無償提供原価 | **売上¥0の明細行**の原価合計。販売粗利には含めない |
+| 直近増減 | 最終月と直前月の売上差。最終月が月途中なら前月も同じ日数に揃えて比較 |
 | 受注件数 | `受注書番号` のユニーク数 |
 | 取引店舗数 | `顧客名` のユニーク数 |
 | 発注数量 | `発注数` の合計。販売・サンプル・イベント・協賛を含む |
@@ -157,6 +181,37 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 | 月平均回転 | 店舗の受注回数 ÷ 対象月数 |
 | 平均発注間隔 | **受注日をユニーク化**した上での隣接日数の平均 |
 | 前期 | 選択期間と同じ日数だけ手前にずらした期間 |
+
+### 販売と無償を「区分」で分けない理由
+
+引き継ぎ書の区分（販売 / サンプル / イベント / 協賛 / 未入力）で分けると、
+実データでは次の売上が粗利計算から漏れる。
+
+| 区分 | 売上あり行 | 売上合計 | 売上¥0行 |
+|---|---|---|---|
+| 販売 | 292 | ¥5,129,602 | 11 |
+| サンプル | 3 | ¥45,708 | 159 |
+| 未入力 | 1 | ¥27,440 | 63 |
+| 協賛 | 2 | ¥15,600 | 12 |
+| イベント | 0 | ¥0 | 7 |
+
+区分「サンプル」「協賛」「未入力」にも売上のある行が実在し、区分で分けると
+¥88,748（売上の1.7%）が粗利の対象外になる。このため
+**`小計 > 0` かどうか**で販売／無償を分けている。区分は列展開・フィルターの軸として
+そのまま使う。
+
+### 原価に含める範囲
+
+- 商品原価（酒類本体）
+- 資材原価（化粧箱・同梱物・ギフト資材）— 受注明細に行として入っているため、
+  マスタに原価を入れるだけで自動的に拾われる
+- 配送料は**含めない**（受注ヘッダの値で、明細行への按分ルールが未定のため）
+
+### 原価未設定の扱い
+
+`Product_Master.原価` が空欄の商品は原価0として集計され、粗利が実際より大きく出る。
+画面上部の帯に「原価設定済み N / M 商品」を常時表示し、未設定があることを明示する。
+1件も設定が無い場合は粗利KPIを「原価未設定」と表示し、数値を出さない。
 
 ### 算出していないもの
 
@@ -199,6 +254,7 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 - 比較分析のランキング（全 N 件）
 - 店舗別 再発注回転（全店舗）
 - フォロー候補（全件）
+- 月別 商品別 売上・数量比較（全行）
 - 店舗別 注文商品・本数（全行）
 
 各パネル下部に「全 N 件を表示」を出し、打ち切りでないことを明示する。

@@ -29,3 +29,17 @@ python3 apps/cw-dashboard/tools/build_preview.py \
   `Scripts.html` 側で行い、ビルドし直すこと。
 - `Styles.html` は全ページ共通。ページごとにデザインを変えない（引き継ぎ書 §22）。
 - `tools/build_preview.py` の正規化は `Code.gs` の移植。仕様の正は `Code.gs`。
+
+## 粗利について
+
+粗利は `Product_Master` シートの `原価` 列（商品別の標準原価）から算出する。
+原価が未入力のうちは「原価未設定」と表示され、数値は出ない。
+
+入力用のひな形:
+
+```bash
+python3 apps/cw-dashboard/tools/build_product_master.py \
+  --csv data/RAW_B2B_sample.csv --out data/Product_Master_template.csv
+```
+
+`data/Product_Master_sample.csv` の原価は動作確認用のサンプル値であり、実原価ではない。

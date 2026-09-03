@@ -99,7 +99,7 @@ button.secondary:hover{background:#e4e4e1}
 /* ============================================================
    KPI Cards（§11）
    ============================================================ */
-.kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--gapSm);margin-bottom:var(--gap)}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--gapSm);margin-bottom:var(--gap)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
 .kpi{padding:15px 16px;min-width:0}
 .kpi .label{font-size:11px;color:var(--muted)}
@@ -237,11 +237,16 @@ tfoot td{position:sticky;bottom:0;background:#f7f7f6;border-top:1px solid var(--
 .errorBox{margin:20px 0;padding:16px 18px;border:1px solid #e0d3ce;background:var(--alertSoft);border-radius:var(--radius);color:var(--alert);font-size:12px;line-height:1.7}
 .errorBox b{display:block;margin-bottom:6px;font-size:13px}
 
+/* 原価の出所を明示するバナー。サンプル原価のまま実績と誤読されるのを防ぐ。 */
+.noticeBox{margin:0 0 var(--gap);padding:12px 16px;border:1px solid #e3d9c2;background:var(--goldSoft);border-radius:var(--radius);color:var(--goldDark);font-size:12px;line-height:1.7}
+.noticeBox b{font-weight:800}
+.noticeBox.warn{border-color:#e0d3ce;background:var(--alertSoft);color:var(--alert)}
+
 /* ============================================================
    Responsive（§20）— 情報量は削減しない。列は横スクロールで担保する
    ============================================================ */
 @media(max-width:1280px){
-  .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media(max-width:1100px){
   .grid2,.gridMain{grid-template-columns:1fr}

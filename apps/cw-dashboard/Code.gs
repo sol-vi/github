@@ -157,6 +157,8 @@ function getB2BData() {
       scopeCustomerTypes: scopeTypes,
       includeStatuses: config.includeStatuses,
       hasProductMaster: master.hasMaster,
+      costCoverage: normalized.costCoverage,
+      costNotice: master.costNotice,
       warnings: normalized.warnings
     },
     options: buildOptions_(scoped),
@@ -222,6 +224,9 @@ function normalizeData_(raw, master, config) {
       productRaw: productRaw,
       category: resolved.category,
       itemType: resolved.itemType,
+      unitCost: resolved.cost,
+      lineCost: resolved.cost * parseNumber_(r[COL.qty]),
+      hasCost: resolved.hasCost,
       segment: text_(r[COL.segment]) || config.blankLabel,
       qty: parseNumber_(r[COL.qty]),
       unitPrice: parseNumber_(r[COL.unitPrice]),
@@ -238,6 +243,21 @@ function normalizeData_(raw, master, config) {
   if (skippedNoProduct) {
     warnings.push('商品名が空の ' + skippedNoProduct + ' 行を除外しました。');
   }
+  var costed = {};
+  var uncosted = {};
+  out.forEach(function (r) {
+    (r.hasCost ? costed : uncosted)[r.product] = true;
+  });
+  var uncostedNames = Object.keys(uncosted);
+  if (uncostedNames.length) {
+    warnings.push(
+      '原価が未設定の商品が ' + uncostedNames.length + ' 件あります（' +
+      uncostedNames.slice(0, 3).join(' / ') +
+      (uncostedNames.length > 3 ? ' ほか' : '') +
+      '）。粗利はこれらを原価0として計算するため過大に出ます。'
+    );
+  }
+
   var renamedCount = Object.keys(renamedProducts).length;
   if (renamedCount) {
     warnings.push('商品名の表記ゆれ ' + renamedCount + ' 件を正規化しました。');
@@ -249,7 +269,14 @@ function normalizeData_(raw, master, config) {
     warnings.push('Product_Master シートが無いため、商品カテゴリは商品名の【…】表記から自動判定しています。');
   }
 
-  return { rows: out, warnings: warnings };
+  return {
+    rows: out,
+    warnings: warnings,
+    costCoverage: {
+      withCost: Object.keys(costed).length,
+      total: Object.keys(costed).length + uncostedNames.length
+    }
+  };
 }
 
 /** 公開用ラッパー（引き継ぎ書のGAS構成に合わせた名前）。 */
@@ -327,22 +354,35 @@ function readProductMaster_() {
 
   var map = {};
   var hasMaster = false;
+  var costNotice = '';
 
   if (table.rows.length) {
     hasMaster = true;
     table.rows.forEach(function (r) {
       var raw = text_(r['商品名']);
       if (!raw) return;
+      var costText = text_(r['原価']);
       map[normalizeKey_(raw)] = {
         name: text_(r['正規化商品名']) || raw,
         category: text_(r['カテゴリ']),
-        itemType: text_(r['品目区分'])
+        itemType: text_(r['品目区分']),
+        cost: parseNumber_(costText),
+        // 空欄と「原価0円」を区別する。空欄なら粗利を出さず「原価未設定」と表示する。
+        hasCost: costText !== ''
       };
+    });
+
+    // 原価の性質（実原価かサンプル値か）を Config ではなくマスタ側の注記欄から拾う
+    table.rows.some(function (r) {
+      var note = text_(r['原価注記']);
+      if (note) { costNotice = note; return true; }
+      return false;
     });
   }
 
   return {
     hasMaster: hasMaster,
+    costNotice: costNotice,
     resolve: function (rawName) {
       var hit = map[normalizeKey_(rawName)];
       var fallback = guessProduct_(rawName);
@@ -350,7 +390,9 @@ function readProductMaster_() {
       return {
         name: hit.name || fallback.name,
         category: hit.category || fallback.category,
-        itemType: hit.itemType || fallback.itemType
+        itemType: hit.itemType || fallback.itemType,
+        cost: hit.cost || 0,
+        hasCost: !!hit.hasCost
       };
     }
   };
@@ -377,7 +419,9 @@ function guessProduct_(rawName) {
   return {
     name: name,
     category: category,
-    itemType: MATERIAL_CATEGORIES[category] ? '資材' : '完成品'
+    itemType: MATERIAL_CATEGORIES[category] ? '資材' : '完成品',
+    cost: 0,
+    hasCost: false
   };
 }
 
