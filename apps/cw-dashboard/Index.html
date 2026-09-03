@@ -227,13 +227,32 @@
             <div class="hint" id="trendHint">棒＝区分別 商品売上（積み上げ）／折れ線＝受注件数</div>
           </div>
           <div class="chartTools">
-            <button class="tab sm active" data-measure="sales" type="button">売上</button>
-            <button class="tab sm" data-measure="gross" type="button">粗利</button>
-            <button class="tab sm" data-measure="qty" type="button">数量</button>
-            <span aria-hidden="true" style="width:8px"></span>
-            <button class="tab sm" data-grain="day" type="button">日次</button>
-            <button class="tab sm active" data-grain="week" type="button">週次</button>
-            <button class="tab sm" data-grain="month" type="button">月次</button>
+            <div class="tabs">
+              <button class="tab sm active" data-measure="sales" type="button">売上</button>
+              <button class="tab sm" data-measure="gross" type="button">粗利</button>
+              <button class="tab sm" data-measure="qty" type="button">数量</button>
+            </div>
+            <div class="tabs">
+              <button class="tab sm" data-grain="day" type="button">日次</button>
+              <button class="tab sm active" data-grain="week" type="button">週次</button>
+              <button class="tab sm" data-grain="month" type="button">月次</button>
+            </div>
+            <label>積み上げ内訳
+              <select id="trendDim">
+                <option value="segment">区分</option>
+                <option value="product">商品</option>
+                <option value="category">商品カテゴリ</option>
+                <option value="customerType">顧客種別</option>
+                <option value="customer">店舗・取引先</option>
+              </select>
+            </label>
+            <label>表示
+              <select id="trendTop">
+                <option value="6">上位6件＋残りをまとめる</option>
+                <option value="10">上位10件＋残りをまとめる</option>
+                <option value="0">すべて</option>
+              </select>
+            </label>
           </div>
         </div>
         <div class="legend" id="trendLegend" style="margin-bottom:10px"></div>

@@ -23,8 +23,22 @@ var C = {
   line: '#D8D8D4'
 };
 
-/** 系列色。ゴールド→シルバー→モノトーンの範囲に留める（§12 色数を増やしすぎない）。 */
-var SERIES = [C.gold, C.ink, C.silver, C.goldDark, C.goldSoft, C.silverSoft];
+/**
+ * 系列色。モノトーン＋ゴールドの濃淡ランプに留める（§12 色数を増やしすぎない）。
+ * 隣り合う帯が見分けられるよう、ゴールド系とグレー系を交互に並べている。
+ */
+var SERIES = [
+  C.gold, C.ink, C.silver, C.goldDark,
+  '#CBB88C', '#5A5A5A', '#E2D6B8', '#D5D6D7'
+];
+
+/**
+ * 畳み込み帯の色。系列色とは別扱いにして、常に一番薄いグレーで描く。
+ * ラベルは「他 N件」。単に「その他」にすると、実データのカテゴリ「その他」と
+ * 衝突して凡例に同名の帯が2つ並んでしまう。
+ */
+var OTHER_COLOR = C.silverSoft;
+function otherLabel(n) { return '他 ' + n + '件'; }
 
 /** 区分の表示順。ここに無い区分はデータ内の出現順で後ろに追加する。 */
 var SEGMENT_ORDER = ['販売', 'サンプル', 'イベント', '協賛', '未入力'];
@@ -44,6 +58,16 @@ var FILTER_LABELS = {
 
 var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
+/** 積み上げ内訳の表示名。「〜別」まで含めて持つ（顧客種別別のような重複を避ける）。 */
+var TREND_DIM_LABELS = {
+  segment: '区分別',
+  product: '商品別',
+  category: '商品カテゴリ別',
+  customerType: '顧客種別',
+  customer: '店舗・取引先別'
+};
+
+
 // ---------------------------------------------------------------------------
 // 状態
 // ---------------------------------------------------------------------------
@@ -53,6 +77,8 @@ var state = {
   dim: 'customer',
   grain: 'week',
   measure: 'sales',              // トレンドの指標：sales | gross | qty
+  trendDim: 'segment',           // トレンドの積み上げ内訳の軸
+  trendTop: 6,                   // 積み上げる帯の上限（0 = すべて）
   monthlyDim: 'product',         // 月別比較の行の軸
   multi: {}                      // key -> Set
 };
@@ -560,6 +586,27 @@ function segmentsOf(rows) {
   return ordered.concat(extra);
 }
 
+/**
+ * トレンドの積み上げ帯の並び。
+ * 区分は業務上の既定順（販売→サンプル→…）、それ以外は指標の大きい順に並べる。
+ */
+function bandsOf(rows, dim, measure) {
+  if (dim === 'segment') return segmentsOf(rows);
+
+  var totals = new Map();
+  rows.forEach(function (r) {
+    var k = r[dim] || '未入力';
+    var v = measure === 'qty' ? r.qty
+      : measure === 'gross' ? (r.lineSales > 0 ? r.lineSales - (r.lineCost || 0) : 0)
+      : r.lineSales;
+    totals.set(k, (totals.get(k) || 0) + v);
+  });
+
+  return Array.from(totals.entries())
+    .sort(function (a, b) { return b[1] - a[1] || a[0].localeCompare(b[0], 'ja'); })
+    .map(function (e) { return e[0]; });
+}
+
 /** 日次／週次（月曜起点）／月次のバケットキー。 */
 function bucketKey(iso, grain) {
   if (!iso) return '';
@@ -577,10 +624,24 @@ function bucketLabel(key, grain) {
   return p[1] + '/' + p[2];
 }
 
-/** 区分別に積み上げた時系列。 */
-function series(rows, grain) {
+/**
+ * 任意の軸で積み上げた時系列。
+ * bands は上位N件に畳んだあとの帯（余りは「その他」）。
+ */
+function series(rows, grain, dim, top) {
   var basis = basisKey();
-  var segs = segmentsOf(rows);
+  var all = bandsOf(rows, dim, state.measure);
+
+  // 上位N件に畳む。帯が増えすぎるとモノトーンの配色では見分けがつかないため。
+  // ただし畳む対象が1件だけなら、帯の数は変わらないのでそのまま出す。
+  var shouldFold = top > 0 && all.length > top + 1;
+  var keep = shouldFold ? all.slice(0, top) : all;
+  var hasOther = keep.length < all.length;
+  var foldLabel = hasOther ? otherLabel(all.length - keep.length) : null;
+  var inKeep = {};
+  keep.forEach(function (v) { inKeep[v] = true; });
+  var segs = hasOther ? keep.concat([foldLabel]) : keep;
+
   var map = new Map();
 
   rows.forEach(function (r) {
@@ -595,7 +656,8 @@ function series(rows, grain) {
       });
     }
     var b = map.get(k);
-    var seg = r.segment || '未入力';
+    var raw = r[dim] || '未入力';
+    var seg = inKeep[raw] ? raw : foldLabel;
     b.sales += r.lineSales;
     b.qty += r.qty;
     b.orders.add(r.orderNo);
@@ -610,17 +672,32 @@ function series(rows, grain) {
 
   var arr = Array.from(map.values()).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
   arr.forEach(function (b) { b.orderCount = b.orders.size; });
-  return { buckets: arr, segments: segs };
+  return {
+    buckets: arr, segments: segs, hasOther: hasOther,
+    foldLabel: foldLabel, keptBands: keep.length, totalBands: all.length
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Trend chart
 // ---------------------------------------------------------------------------
 
+var PALE_FILLS = { '#EEEEEC': 1, '#F1EDE4': 1, '#E2D6B8': 1, '#D5D6D7': 1 };
+
+function bandColor(seg, i, foldLabel) {
+  return seg === foldLabel ? OTHER_COLOR : SERIES[i % SERIES.length];
+}
+
+/** 淡い帯は白地に溶けるので、その分だけ細い枠線を足す。 */
+function bandStroke(seg, i, foldLabel) {
+  return PALE_FILLS[bandColor(seg, i, foldLabel)] ? C.line : null;
+}
+
 function renderTrend(rows) {
   var svg = $('trend');
   var W = 900, H = 300, pad = { l: 62, r: 52, t: 20, b: 46 };
-  var s = series(rows, state.grain);
+  var dim = state.trendDim;
+  var s = series(rows, state.grain, dim, state.trendTop);
   var data = s.buckets;
 
   // 売上で積むとサンプル・協賛が¥0のため単色に潰れる。数量でも見られるようにする。
@@ -631,14 +708,20 @@ function renderTrend(rows) {
   var fmtLeft = isQty ? function (v) { return num(v) + '点'; } : compactYen;
   var fmtVal = isQty ? function (v) { return num(v) + '点'; } : yen;
 
+  var dimLabel = TREND_DIM_LABELS[dim] || dim;
+  var measureLabel = isQty ? '発注数量' : isGross ? '販売粗利' : '商品売上';
   $('trendHint').textContent =
-    isQty ? '棒＝区分別 発注数量（積み上げ）／折れ線＝受注件数'
-    : isGross ? '棒＝区分別 販売粗利（積み上げ）／折れ線＝受注件数'
-    : '棒＝区分別 商品売上（積み上げ）／折れ線＝受注件数';
+    '棒＝' + dimLabel + ' ' + measureLabel + '（積み上げ）／折れ線＝受注件数' +
+    (s.hasOther
+      ? '　上位' + s.keptBands + '件を表示し、残り' + (s.totalBands - s.keptBands) +
+        '件は「' + s.foldLabel + '」にまとめています（全' + s.totalBands + '件）'
+      : '');
 
   $('trendLegend').innerHTML = s.segments.map(function (seg, i) {
-    return '<span><i class="dot" style="background:' + SERIES[i % SERIES.length] +
-      (i >= 4 ? ';border:1px solid ' + C.line : '') + '"></i>' + esc(seg) + '</span>';
+    var stroke = bandStroke(seg, i, s.foldLabel);
+    return '<span title="' + esc(seg) + '"><i class="dot" style="background:' + bandColor(seg, i, s.foldLabel) +
+      (stroke ? ';border:1px solid ' + stroke : '') + '"></i>' +
+      esc(seg.length > 28 ? seg.slice(0, 27) + '…' : seg) + '</span>';
   }).join('') + '<span><i class="dot line"></i>受注件数</span>';
 
   if (!data.length) {
@@ -676,9 +759,10 @@ function renderTrend(rows) {
       if (v <= 0) return;
       var y1 = ys(acc + v), y2 = ys(acc);
       acc += v;
-      var fill = SERIES[si % SERIES.length];
+      var fill = bandColor(seg, si, s.foldLabel);
+      var stroke = bandStroke(seg, si, s.foldLabel);
       out.push('<rect x="' + (cx(i) - barW / 2) + '" y="' + y1 + '" width="' + barW + '" height="' + Math.max(0, y2 - y1) +
-        '" fill="' + fill + '"' + (si >= 4 ? ' stroke="' + C.line + '"' : '') + '><title>' +
+        '" fill="' + fill + '"' + (stroke ? ' stroke="' + stroke + '"' : '') + '><title>' +
         esc(bucketLabel(d.key, state.grain) + ' ' + seg + '：' + fmtVal(v)) + '</title></rect>');
     });
   });
@@ -1498,6 +1582,15 @@ function bindEvents() {
       state.dim = btn.getAttribute('data-dim');
       renderRank(currentRows());
     });
+  });
+
+  $('trendDim').addEventListener('change', function () {
+    state.trendDim = $('trendDim').value;
+    renderTrend(currentRows());
+  });
+  $('trendTop').addEventListener('change', function () {
+    state.trendTop = Number($('trendTop').value);
+    renderTrend(currentRows());
   });
 
   document.querySelectorAll('.tab[data-monthly-dim]').forEach(function (btn) {
