@@ -1,0 +1,1242 @@
+<script>
+/* ============================================================
+   CRAFT WONDER DASHBOARD — 業務店営業
+   ------------------------------------------------------------
+   データ取得はGAS、集計・描画はここ（引き継ぎ書 §2.5）。
+   実データはHTMLに埋め込まず、必ず getDashboardData() から受け取る。
+   ============================================================ */
+(function () {
+'use strict';
+
+// ---------------------------------------------------------------------------
+// 定数
+// ---------------------------------------------------------------------------
+
+var C = {
+  gold: '#B39A63',
+  goldDark: '#8D7544',
+  goldSoft: '#F1EDE4',
+  silver: '#A8AAAD',
+  silverSoft: '#EEEEEC',
+  ink: '#171717',
+  muted: '#747474',
+  line: '#D8D8D4'
+};
+
+/** 系列色。ゴールド→シルバー→モノトーンの範囲に留める（§12 色数を増やしすぎない）。 */
+var SERIES = [C.gold, C.ink, C.silver, C.goldDark, C.goldSoft, C.silverSoft];
+
+/** 区分の表示順。ここに無い区分はデータ内の出現順で後ろに追加する。 */
+var SEGMENT_ORDER = ['販売', 'サンプル', 'イベント', '協賛', '未入力'];
+
+var FILTER_KEYS = ['customerType', 'segment', 'lead', 'customer', 'product', 'repeat', 'category', 'owner'];
+
+var FILTER_LABELS = {
+  customerType: '顧客種別',
+  segment: '区分',
+  lead: 'リード種別',
+  customer: '店舗',
+  product: '商品',
+  repeat: '新規/リピート',
+  category: 'カテゴリ',
+  owner: '担当'
+};
+
+var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+// ---------------------------------------------------------------------------
+// 状態
+// ---------------------------------------------------------------------------
+
+var DATA = null;                 // GASから受け取ったペイロード
+var state = {
+  dim: 'customer',
+  grain: 'week',
+  measure: 'sales',              // トレンドの指標：sales | qty
+  multi: {}                      // key -> Set
+};
+FILTER_KEYS.forEach(function (k) { state.multi[k] = new Set(); });
+
+// ---------------------------------------------------------------------------
+// 小さなユーティリティ
+// ---------------------------------------------------------------------------
+
+function $(id) { return document.getElementById(id); }
+
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function (m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+  });
+}
+
+function yen(n) { return '¥' + Math.round(n || 0).toLocaleString('ja-JP'); }
+function num(n) { return Math.round(n || 0).toLocaleString('ja-JP'); }
+
+/** 桁数を抑えた軸ラベル用の表記。 */
+function compactYen(v) {
+  var a = Math.abs(v);
+  if (a >= 1000000) return '¥' + (v / 1000000).toFixed(1) + 'M';
+  if (a >= 1000) return '¥' + Math.round(v / 1000) + 'k';
+  return '¥' + Math.round(v);
+}
+
+function dateObj(s) { return s ? new Date(s + 'T00:00:00') : null; }
+
+function fmtDate(s) {
+  if (!s) return '—';
+  var p = s.split('-');
+  return p[1] + '/' + p[2];
+}
+
+function addDays(iso, n) {
+  var d = dateObj(iso);
+  if (!d) return '';
+  d.setDate(d.getDate() + n);
+  return isoOf(d);
+}
+
+function isoOf(d) {
+  return d.getFullYear() + '-' +
+    ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+    ('0' + d.getDate()).slice(-2);
+}
+
+function daysBetween(a, b) {
+  var x = dateObj(a), y = dateObj(b);
+  if (!x || !y) return null;
+  return Math.round((y - x) / 86400000);
+}
+
+/** 期間にまたがる月数（1以上）。回転率の分母に使う。 */
+function monthSpan(fromIso, toIso) {
+  var a = dateObj(fromIso), b = dateObj(toIso);
+  if (!a || !b) return 1;
+  return Math.max(1, (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1);
+}
+
+function sum(arr, f) {
+  var s = 0;
+  for (var i = 0; i < arr.length; i++) s += f(arr[i]);
+  return s;
+}
+
+function uniqueCount(rows, key) {
+  var s = new Set();
+  for (var i = 0; i < rows.length; i++) if (rows[i][key]) s.add(rows[i][key]);
+  return s.size;
+}
+
+/** 商品チップ用の短縮名。カテゴリ接頭辞と補足〈…〉を落とす。 */
+function shortProduct(p) {
+  // 〈…〉は残す。Non Ale Wonder〈Ginger〉/〈Yuzu〉のように
+  // 〈…〉だけが違う別商品を同名へ潰さないため。
+  var s = String(p || '')
+    .replace(/^●[^●]*●/, '')
+    .replace(/^【[^】]+】/, '')
+    .replace(/★.*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s.length > 40 ? s.slice(0, 39) + '…' : s;
+}
+
+// ---------------------------------------------------------------------------
+// データ取得
+// ---------------------------------------------------------------------------
+
+function loadData() {
+  // プレビュー版（GASの外）では build_preview.py が同じ形のペイロードを注入する。
+  if (window.__CW_PREVIEW_DATA__) {
+    setTimeout(function () { onData(window.__CW_PREVIEW_DATA__); }, 0);
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(onData)
+    .withFailureHandler(onError)
+    .getDashboardData({ page: 'b2b' });
+}
+
+function onError(err) {
+  $('loading').hidden = true;
+  $('errorSlot').innerHTML =
+    '<div class="errorBox"><b>データを取得できませんでした</b>' +
+    esc(err && err.message ? err.message : err) +
+    '<br>Spreadsheetのシート名と列名が docs/cw-dashboard-b2b.md の定義と一致しているか確認してください。</div>';
+}
+
+function onData(payload) {
+  DATA = payload;
+  $('loading').hidden = true;
+  $('content').hidden = false;
+  initHeader();
+  initFilters();
+  bindEvents();
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
+
+function initHeader() {
+  var m = DATA.meta;
+  $('eyebrow').textContent = m.eyebrow;
+  $('pageTitle').textContent = m.title;
+  $('generatedAt').textContent = m.generatedAt;
+  $('coverage').textContent = (m.coverageFrom || '—') + ' 〜 ' + (m.coverageTo || '—');
+
+  var scope = (m.includeStatuses || []).join('・');
+  var types = (m.scopeCustomerTypes && m.scopeCustomerTypes.length)
+    ? m.scopeCustomerTypes.join('・')
+    : '全顧客種別';
+  $('scopeLabel').textContent = scope + '／' + types;
+
+  var notes = [
+    '※ 店舗の厳密な在庫回転率は店頭POS・店頭在庫データが無いため算出していません。' +
+    '本ページでは<b>月平均受注回数</b>と<b>平均発注間隔</b>を再発注回転の代理指標として使用しています。',
+    '※ 売上は明細「小計」（税抜）の合計です。配送料・調整額は含みません。',
+    '※ 商品名の表記ゆれは Product_Master / GAS 側で正規化しています。'
+  ];
+  (m.warnings || []).forEach(function (w) { notes.push('※ ' + esc(w)); });
+  notes.push('※ 読込元 <b>' + esc(m.sheet) + '</b>（' + num(m.sourceRows) + '行 → 対象 ' + num(m.rowCount) + '行 / ' + num(m.orderCount) + '受注）');
+  $('footer').innerHTML = notes.join('<br>');
+}
+
+// ---------------------------------------------------------------------------
+// Filter（§10 カスタムドロップダウン＋チェックボックス）
+// ---------------------------------------------------------------------------
+
+function initFilters() {
+  FILTER_KEYS.forEach(function (key) { buildMulti(key); });
+
+  var from = DATA.meta.coverageFrom || '';
+  var to = DATA.meta.coverageTo || '';
+  $('from').value = from;
+  $('to').value = to;
+}
+
+function buildMulti(key) {
+  var menu = $(key + 'Menu');
+  var wrap = $(key + 'Multi');
+  if (!menu || !wrap) return;
+
+  var options = (DATA.options && DATA.options[key]) || [];
+  var searchable = options.length > 12;
+
+  var head = '<div class="multiMenuHead">' +
+    '<button type="button" class="multiMini" data-action="all">すべて</button>' +
+    '<button type="button" class="multiMini" data-action="clear">解除</button>' +
+    (searchable ? '<input type="search" class="multiSearch" placeholder="絞り込み" aria-label="選択肢を絞り込み">' : '') +
+    '</div>';
+
+  var body = options.map(function (o) {
+    return '<label class="multiOption" data-value="' + esc(o.value) + '">' +
+      '<input type="checkbox" value="' + esc(o.value) + '">' +
+      '<span>' + esc(o.value) + '</span>' +
+      '<span class="optCount">' + num(o.count) + '</span>' +
+      '</label>';
+  }).join('');
+
+  menu.innerHTML = head + body;
+
+  menu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      var set = state.multi[key];
+      if (cb.checked) set.add(cb.value); else set.delete(cb.value);
+      cb.closest('.multiOption').classList.toggle('on', cb.checked);
+      updateMultiLabel(key);
+      render();
+    });
+  });
+
+  menu.querySelectorAll('.multiMini').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var all = btn.getAttribute('data-action') === 'all';
+      state.multi[key] = new Set(all ? options.map(function (o) { return o.value; }) : []);
+      menu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        cb.checked = all;
+        cb.closest('.multiOption').classList.toggle('on', all);
+      });
+      updateMultiLabel(key);
+      render();
+    });
+  });
+
+  var search = menu.querySelector('.multiSearch');
+  if (search) {
+    search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      menu.querySelectorAll('.multiOption').forEach(function (opt) {
+        var v = opt.getAttribute('data-value').toLowerCase();
+        opt.style.display = (!q || v.indexOf(q) >= 0) ? '' : 'none';
+      });
+    });
+    search.addEventListener('click', function (e) { e.stopPropagation(); });
+  }
+
+  var trigger = wrap.querySelector('.multiTrigger');
+  trigger.addEventListener('click', function (e) {
+    e.stopPropagation();
+    document.querySelectorAll('.multiSelect.open').forEach(function (x) {
+      if (x !== wrap) {
+        x.classList.remove('open');
+        x.querySelector('.multiTrigger').setAttribute('aria-expanded', 'false');
+      }
+    });
+    var open = wrap.classList.toggle('open');
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  menu.addEventListener('click', function (e) { e.stopPropagation(); });
+  updateMultiLabel(key);
+}
+
+/**
+ * トリガーの表示（§10）。
+ * 未選択・全選択＝すべて／1件＝値そのもの／複数＝件数バッジ。
+ */
+function updateMultiLabel(key) {
+  var wrap = $(key + 'Multi');
+  if (!wrap) return;
+  var trigger = wrap.querySelector('.multiTrigger');
+  var set = state.multi[key];
+  var total = ((DATA.options && DATA.options[key]) || []).length;
+  var label = FILTER_LABELS[key];
+
+  if (set.size === 0 || set.size === total) {
+    trigger.innerHTML = esc(label) + '：すべて';
+    wrap.classList.remove('picked');
+  } else if (set.size === 1) {
+    trigger.innerHTML = esc(label) + '：' + esc(Array.from(set)[0]);
+    wrap.classList.add('picked');
+  } else {
+    trigger.innerHTML = esc(label) + '<span class="multiCount">' + set.size + '</span>';
+    wrap.classList.add('picked');
+  }
+}
+
+function resetFilters() {
+  FILTER_KEYS.forEach(function (key) {
+    state.multi[key].clear();
+    var menu = $(key + 'Menu');
+    if (menu) {
+      menu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        cb.checked = false;
+        cb.closest('.multiOption').classList.remove('on');
+      });
+      var s = menu.querySelector('.multiSearch');
+      if (s) { s.value = ''; menu.querySelectorAll('.multiOption').forEach(function (o) { o.style.display = ''; }); }
+    }
+    updateMultiLabel(key);
+  });
+  $('basis').value = 'orderDate';
+  $('from').value = DATA.meta.coverageFrom || '';
+  $('to').value = DATA.meta.coverageTo || '';
+  $('rankSort').value = 'sales_desc';
+  $('rotationSort').value = 'rotation_desc';
+  $('storeProductSort').value = 'store_asc';
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// 絞り込み
+// ---------------------------------------------------------------------------
+
+function basisKey() { return $('basis').value; }
+
+/** 絞り込み条件を満たす明細行。 */
+function currentRows(fromOverride, toOverride) {
+  var basis = basisKey();
+  var from = fromOverride !== undefined ? fromOverride : $('from').value;
+  var to = toOverride !== undefined ? toOverride : $('to').value;
+
+  return DATA.rows.filter(function (r) {
+    var d = r[basis];
+    if (from && (!d || d < from)) return false;
+    if (to && (!d || d > to)) return false;
+    for (var i = 0; i < FILTER_KEYS.length; i++) {
+      var key = FILTER_KEYS[i];
+      var set = state.multi[key];
+      if (set.size > 0 && !set.has(r[key])) return false;
+    }
+    return true;
+  });
+}
+
+/** 同じ日数だけ手前にずらした比較期間の行。 */
+function previousRows() {
+  var from = $('from').value, to = $('to').value;
+  if (!from || !to) return null;
+  var span = daysBetween(from, to);
+  if (span === null) return null;
+  var prevTo = addDays(from, -1);
+  var prevFrom = addDays(prevTo, -span);
+  return { rows: currentRows(prevFrom, prevTo), from: prevFrom, to: prevTo };
+}
+
+/** 明細行から受注単位（受注書番号ユニーク）の代表行を作る。 */
+function ordersOf(rows) {
+  var map = new Map();
+  rows.forEach(function (r) {
+    if (!map.has(r.orderNo)) map.set(r.orderNo, r);
+  });
+  return Array.from(map.values());
+}
+
+// ---------------------------------------------------------------------------
+// KPI
+// ---------------------------------------------------------------------------
+
+function metrics(rows) {
+  var orders = ordersOf(rows);
+  var basis = basisKey();
+
+  var dates = rows.map(function (r) { return r[basis]; }).filter(Boolean).sort();
+  var months = dates.length ? monthSpan(dates[0], dates[dates.length - 1]) : 1;
+
+  var stores = uniqueCount(rows, 'customer');
+  var repeats = orders.filter(function (r) { return r.repeat === 'リピート'; }).length;
+
+  var leads = orders
+    .map(function (r) { return daysBetween(r.orderDate, r.shipDate); })
+    .filter(function (v) { return v !== null && isFinite(v) && v >= 0; });
+
+  return {
+    sales: sum(rows, function (r) { return r.lineSales; }),
+    qty: sum(rows, function (r) { return r.qty; }),
+    orders: orders.length,
+    stores: stores,
+    repeatRate: orders.length ? repeats / orders.length : 0,
+    leadDays: leads.length ? sum(leads, function (v) { return v; }) / leads.length : null,
+    rotation: stores ? orders.length / stores / months : 0,
+    months: months
+  };
+}
+
+/**
+ * 前期比バッジ。比較期間にデータが無ければ「比較データなし」と明示する。
+ * higherIsBetter=false の指標（出荷Leadなど）は色を反転させる。
+ */
+function deltaBadge(current, previous, opts) {
+  opts = opts || {};
+  var el = document.createElement('div');
+
+  if (previous === null || previous === undefined || !isFinite(previous) || previous === 0) {
+    el.className = 'delta';
+    el.textContent = '比較データなし';
+    return el;
+  }
+
+  var diff = current - previous;
+  var pct = diff / Math.abs(previous) * 100;
+  var better = opts.higherIsBetter === false ? diff < 0 : diff > 0;
+
+  el.className = 'delta ' + (diff === 0 ? '' : (better ? 'up' : 'down'));
+  el.textContent = (diff > 0 ? '▲' : diff < 0 ? '▼' : '±') + Math.abs(pct).toFixed(1) + '% 前期比';
+  return el;
+}
+
+function setDelta(id, current, previous, opts) {
+  var slot = $(id);
+  slot.innerHTML = '';
+  slot.appendChild(deltaBadge(current, previous, opts));
+}
+
+function renderKpis(rows, prev) {
+  var m = metrics(rows);
+  var p = prev ? metrics(prev.rows) : null;
+
+  $('kpiSales').textContent = yen(m.sales);
+  $('kpiOrders').textContent = num(m.orders);
+  $('kpiStores').textContent = num(m.stores);
+  $('kpiQty').textContent = num(m.qty);
+  $('kpiRepeat').textContent = (m.repeatRate * 100).toFixed(1) + '%';
+  $('kpiLead').textContent = m.leadDays === null ? '—' : m.leadDays.toFixed(1) + '日';
+  $('kpiRotation').textContent = m.rotation.toFixed(2) + '回/月';
+
+  setDelta('kpiSalesDelta', m.sales, p && p.sales);
+  setDelta('kpiOrdersDelta', m.orders, p && p.orders);
+  setDelta('kpiStoresDelta', m.stores, p && p.stores);
+  setDelta('kpiQtyDelta', m.qty, p && p.qty);
+  setDelta('kpiRepeatDelta', m.repeatRate, p && p.repeatRate);
+  setDelta('kpiLeadDelta', m.leadDays, p && p.leadDays, { higherIsBetter: false });
+  setDelta('kpiRotationDelta', m.rotation, p && p.rotation);
+}
+
+// ---------------------------------------------------------------------------
+// 集計
+// ---------------------------------------------------------------------------
+
+/** 任意の軸でまとめる。 */
+function group(rows, key) {
+  var map = new Map();
+  rows.forEach(function (r) {
+    var k = r[key] || '未入力';
+    if (!map.has(k)) {
+      map.set(k, { name: k, sales: 0, qty: 0, orders: new Set(), customers: new Set() });
+    }
+    var x = map.get(k);
+    x.sales += r.lineSales;
+    x.qty += r.qty;
+    x.orders.add(r.orderNo);
+    x.customers.add(r.customer);
+  });
+  return Array.from(map.values());
+}
+
+/** データ内に存在する区分を、既定順→出現順で並べる（§17 新区分の自動追加）。 */
+function segmentsOf(rows) {
+  var present = new Set();
+  rows.forEach(function (r) { present.add(r.segment || '未入力'); });
+  var ordered = SEGMENT_ORDER.filter(function (s) { return present.has(s); });
+  var extra = Array.from(present)
+    .filter(function (s) { return SEGMENT_ORDER.indexOf(s) < 0; })
+    .sort(function (a, b) { return a.localeCompare(b, 'ja'); });
+  return ordered.concat(extra);
+}
+
+/** 日次／週次（月曜起点）／月次のバケットキー。 */
+function bucketKey(iso, grain) {
+  if (!iso) return '';
+  if (grain === 'month') return iso.slice(0, 7);
+  if (grain === 'day') return iso;
+  var d = dateObj(iso);
+  var dow = (d.getDay() + 6) % 7; // 月曜=0
+  d.setDate(d.getDate() - dow);
+  return isoOf(d);
+}
+
+function bucketLabel(key, grain) {
+  if (grain === 'month') return key.slice(5) + '月';
+  var p = key.split('-');
+  return p[1] + '/' + p[2];
+}
+
+/** 区分別に積み上げた時系列。 */
+function series(rows, grain) {
+  var basis = basisKey();
+  var segs = segmentsOf(rows);
+  var map = new Map();
+
+  rows.forEach(function (r) {
+    var k = bucketKey(r[basis], grain);
+    if (!k) return;
+    if (!map.has(k)) {
+      var segSales = {}, segQty = {};
+      segs.forEach(function (s) { segSales[s] = 0; segQty[s] = 0; });
+      map.set(k, { key: k, sales: 0, qty: 0, orders: new Set(), segSales: segSales, segQty: segQty });
+    }
+    var b = map.get(k);
+    var seg = r.segment || '未入力';
+    b.sales += r.lineSales;
+    b.qty += r.qty;
+    b.orders.add(r.orderNo);
+    b.segSales[seg] += r.lineSales;
+    b.segQty[seg] += r.qty;
+  });
+
+  var arr = Array.from(map.values()).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
+  arr.forEach(function (b) { b.orderCount = b.orders.size; });
+  return { buckets: arr, segments: segs };
+}
+
+// ---------------------------------------------------------------------------
+// Trend chart
+// ---------------------------------------------------------------------------
+
+function renderTrend(rows) {
+  var svg = $('trend');
+  var W = 900, H = 300, pad = { l: 62, r: 52, t: 20, b: 46 };
+  var s = series(rows, state.grain);
+  var data = s.buckets;
+
+  // 売上で積むとサンプル・協賛が¥0のため単色に潰れる。数量でも見られるようにする。
+  var isQty = state.measure === 'qty';
+  var segOf = function (b) { return isQty ? b.segQty : b.segSales; };
+  var totalOf = function (b) { return isQty ? b.qty : b.sales; };
+  var fmtLeft = isQty ? function (v) { return num(v) + '点'; } : compactYen;
+  var fmtVal = isQty ? function (v) { return num(v) + '点'; } : yen;
+
+  $('trendHint').textContent = isQty
+    ? '棒＝区分別 発注数量（積み上げ）／折れ線＝受注件数'
+    : '棒＝区分別 商品売上（積み上げ）／折れ線＝受注件数';
+
+  $('trendLegend').innerHTML = s.segments.map(function (seg, i) {
+    return '<span><i class="dot" style="background:' + SERIES[i % SERIES.length] +
+      (i >= 4 ? ';border:1px solid ' + C.line : '') + '"></i>' + esc(seg) + '</span>';
+  }).join('') + '<span><i class="dot line"></i>受注件数</span>';
+
+  if (!data.length) {
+    svg.innerHTML = '<text x="450" y="150" text-anchor="middle" font-size="13" fill="' + C.muted + '">対象データがありません</text>';
+    return;
+  }
+
+  var innerW = W - pad.l - pad.r;
+  var innerH = H - pad.t - pad.b;
+  var maxSales = Math.max(1, Math.max.apply(null, data.map(totalOf)));
+  var maxOrders = Math.max(1, Math.max.apply(null, data.map(function (d) { return d.orderCount; })));
+
+  var step = innerW / data.length;
+  var barW = Math.max(2, Math.min(38, step * 0.62));
+  var cx = function (i) { return pad.l + step * (i + 0.5); };
+  var ys = function (v) { return pad.t + innerH * (1 - v / maxSales); };
+  var yo = function (v) { return pad.t + innerH * (1 - v / maxOrders); };
+
+  var out = [];
+
+  // グリッド＋左右の軸ラベル
+  [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+    var y = pad.t + innerH * t;
+    out.push('<line x1="' + pad.l + '" y1="' + y + '" x2="' + (W - pad.r) + '" y2="' + y + '" stroke="' + C.line + '" stroke-width="1"/>');
+    out.push('<text x="' + (pad.l - 8) + '" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="' + C.muted + '">' + fmtLeft(maxSales * (1 - t)) + '</text>');
+    out.push('<text x="' + (W - pad.r + 8) + '" y="' + (y + 4) + '" font-size="10" fill="' + C.muted + '">' + Math.round(maxOrders * (1 - t)) + '</text>');
+  });
+
+  // 区分別 積み上げ棒
+  data.forEach(function (d, i) {
+    var acc = 0;
+    var bucketSeg = segOf(d);
+    s.segments.forEach(function (seg, si) {
+      var v = bucketSeg[seg] || 0;
+      if (v <= 0) return;
+      var y1 = ys(acc + v), y2 = ys(acc);
+      acc += v;
+      var fill = SERIES[si % SERIES.length];
+      out.push('<rect x="' + (cx(i) - barW / 2) + '" y="' + y1 + '" width="' + barW + '" height="' + Math.max(0, y2 - y1) +
+        '" fill="' + fill + '"' + (si >= 4 ? ' stroke="' + C.line + '"' : '') + '><title>' +
+        esc(bucketLabel(d.key, state.grain) + ' ' + seg + '：' + fmtVal(v)) + '</title></rect>');
+    });
+  });
+
+  // 受注件数ライン
+  var pts = data.map(function (d, i) { return cx(i) + ',' + yo(d.orderCount); }).join(' ');
+  out.push('<polyline points="' + pts + '" fill="none" stroke="' + C.silver + '" stroke-width="2" stroke-dasharray="5 5" stroke-linejoin="round" stroke-linecap="round"/>');
+  data.forEach(function (d, i) {
+    out.push('<circle cx="' + cx(i) + '" cy="' + yo(d.orderCount) + '" r="3" fill="#fff" stroke="' + C.silver + '" stroke-width="2"><title>' +
+      esc(bucketLabel(d.key, state.grain) + ' 受注 ' + d.orderCount + '件') + '</title></circle>');
+  });
+
+  // X軸ラベル。密なときは間引く（値そのものは棒のtooltipで担保）。
+  var every = Math.max(1, Math.ceil(data.length / 18));
+  data.forEach(function (d, i) {
+    if (i % every !== 0 && i !== data.length - 1) return;
+    out.push('<text x="' + cx(i) + '" y="' + (H - 22) + '" text-anchor="middle" font-size="10" fill="' + C.muted + '">' +
+      esc(bucketLabel(d.key, state.grain)) + '</text>');
+  });
+
+  out.push('<text x="' + pad.l + '" y="' + (H - 6) + '" font-size="9" fill="' + C.muted + '">' + (isQty ? '発注数量' : '商品売上') + '（左軸）</text>');
+  out.push('<text x="' + (W - pad.r) + '" y="' + (H - 6) + '" text-anchor="end" font-size="9" fill="' + C.muted + '">受注件数（右軸）</text>');
+
+  svg.innerHTML = out.join('');
+}
+
+// ---------------------------------------------------------------------------
+// Mix donut
+// ---------------------------------------------------------------------------
+
+function renderMix(rows) {
+  var svg = $('mixChart');
+  var arr = group(rows, 'customerType').sort(function (a, b) { return b.sales - a.sales; });
+  var total = sum(arr, function (x) { return x.sales; });
+
+  if (!total) {
+    svg.innerHTML = '<text x="160" y="115" text-anchor="middle" font-size="12" fill="' + C.muted + '">対象データがありません</text>';
+    $('mixLegend').innerHTML = '';
+    return;
+  }
+
+  var cxp = 160, cyp = 108, rOuter = 84, rInner = 52;
+  var angle = -Math.PI / 2;
+  var out = [];
+
+  arr.forEach(function (x, i) {
+    var frac = x.sales / total;
+    if (frac <= 0) return;
+    var a0 = angle;
+    var a1 = angle + frac * Math.PI * 2;
+    angle = a1;
+
+    var large = (a1 - a0) > Math.PI ? 1 : 0;
+    var p = function (r, a) { return (cxp + r * Math.cos(a)).toFixed(2) + ' ' + (cyp + r * Math.sin(a)).toFixed(2); };
+
+    // 単一系列で360°になるケースは円弧が描けないのでリングで代替する
+    var d = (frac >= 0.9999)
+      ? 'M ' + (cxp - rOuter) + ' ' + cyp + ' a ' + rOuter + ' ' + rOuter + ' 0 1 0 ' + (rOuter * 2) + ' 0 a ' + rOuter + ' ' + rOuter + ' 0 1 0 ' + (-rOuter * 2) + ' 0 Z ' +
+        'M ' + (cxp - rInner) + ' ' + cyp + ' a ' + rInner + ' ' + rInner + ' 0 1 1 ' + (rInner * 2) + ' 0 a ' + rInner + ' ' + rInner + ' 0 1 1 ' + (-rInner * 2) + ' 0 Z'
+      : 'M ' + p(rOuter, a0) + ' A ' + rOuter + ' ' + rOuter + ' 0 ' + large + ' 1 ' + p(rOuter, a1) +
+        ' L ' + p(rInner, a1) + ' A ' + rInner + ' ' + rInner + ' 0 ' + large + ' 0 ' + p(rInner, a0) + ' Z';
+
+    var fill = SERIES[i % SERIES.length];
+    out.push('<path d="' + d + '" fill="' + fill + '" fill-rule="evenodd" stroke="#fff" stroke-width="1.5"><title>' +
+      esc(x.name + '：' + yen(x.sales) + '（' + (frac * 100).toFixed(1) + '%）') + '</title></path>');
+  });
+
+  out.push('<text x="' + cxp + '" y="' + (cyp - 4) + '" text-anchor="middle" font-size="10" fill="' + C.muted + '">商品売上 計</text>');
+  out.push('<text x="' + cxp + '" y="' + (cyp + 16) + '" text-anchor="middle" font-size="15" font-weight="700" fill="' + C.ink + '">' + esc(compactYen(total)) + '</text>');
+  svg.innerHTML = out.join('');
+
+  $('mixLegend').innerHTML = arr.map(function (x, i) {
+    return '<span><i class="dot" style="background:' + SERIES[i % SERIES.length] +
+      (i >= 4 ? ';border:1px solid ' + C.line : '') + '"></i>' + esc(x.name) +
+      ' <b class="num">' + (x.sales / total * 100).toFixed(1) + '%</b></span>';
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Category combo
+// ---------------------------------------------------------------------------
+
+function renderCategory(rows) {
+  var svg = $('categoryChart');
+  var W = 360, H = 230, pad = { l: 46, r: 36, t: 14, b: 52 };
+  var arr = group(rows, 'category').sort(function (a, b) { return b.sales - a.sales; }).slice(0, 8);
+
+  if (!arr.length) {
+    svg.innerHTML = '<text x="180" y="115" text-anchor="middle" font-size="12" fill="' + C.muted + '">対象データがありません</text>';
+    return;
+  }
+
+  var innerW = W - pad.l - pad.r, innerH = H - pad.t - pad.b;
+  var maxS = Math.max(1, Math.max.apply(null, arr.map(function (x) { return x.sales; })));
+  var maxQ = Math.max(1, Math.max.apply(null, arr.map(function (x) { return x.qty; })));
+  var step = innerW / arr.length;
+  var barW = Math.max(6, Math.min(28, step * 0.5));
+  var cx = function (i) { return pad.l + step * (i + 0.5); };
+  var ys = function (v) { return pad.t + innerH * (1 - v / maxS); };
+  var yq = function (v) { return pad.t + innerH * (1 - v / maxQ); };
+
+  var out = [];
+  [0, 0.5, 1].forEach(function (t) {
+    var y = pad.t + innerH * t;
+    out.push('<line x1="' + pad.l + '" y1="' + y + '" x2="' + (W - pad.r) + '" y2="' + y + '" stroke="' + C.line + '"/>');
+    out.push('<text x="' + (pad.l - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="9" fill="' + C.muted + '">' + compactYen(maxS * (1 - t)) + '</text>');
+  });
+
+  arr.forEach(function (x, i) {
+    out.push('<rect x="' + (cx(i) - barW / 2) + '" y="' + ys(x.sales) + '" width="' + barW +
+      '" height="' + Math.max(0, pad.t + innerH - ys(x.sales)) + '" fill="' + C.gold + '"><title>' +
+      esc(x.name + '：' + yen(x.sales)) + '</title></rect>');
+  });
+
+  var pts = arr.map(function (x, i) { return cx(i) + ',' + yq(x.qty); }).join(' ');
+  out.push('<polyline points="' + pts + '" fill="none" stroke="' + C.silver + '" stroke-width="2"/>');
+  arr.forEach(function (x, i) {
+    out.push('<circle cx="' + cx(i) + '" cy="' + yq(x.qty) + '" r="3" fill="#fff" stroke="' + C.silver + '" stroke-width="2"><title>' +
+      esc(x.name + '：' + num(x.qty) + '点') + '</title></circle>');
+  });
+
+  arr.forEach(function (x, i) {
+    var label = x.name.length > 6 ? x.name.slice(0, 6) + '…' : x.name;
+    out.push('<text x="' + cx(i) + '" y="' + (H - 32) + '" text-anchor="end" font-size="9" fill="' + C.muted +
+      '" transform="rotate(-40 ' + cx(i) + ' ' + (H - 32) + ')">' + esc(label) + '</text>');
+  });
+
+  svg.innerHTML = out.join('');
+}
+
+// ---------------------------------------------------------------------------
+// Weekday
+// ---------------------------------------------------------------------------
+
+function renderWeekday(rows) {
+  var svg = $('weekdayChart');
+  var W = 360, H = 230, pad = { l: 46, r: 36, t: 14, b: 34 };
+  var basis = basisKey();
+
+  var buckets = WEEKDAYS.map(function (w) { return { name: w, sales: 0, orders: new Set() }; });
+  rows.forEach(function (r) {
+    var d = dateObj(r[basis]);
+    if (!d) return;
+    var b = buckets[d.getDay()];
+    b.sales += r.lineSales;
+    b.orders.add(r.orderNo);
+  });
+
+  var maxS = Math.max(1, Math.max.apply(null, buckets.map(function (b) { return b.sales; })));
+  var maxO = Math.max(1, Math.max.apply(null, buckets.map(function (b) { return b.orders.size; })));
+  if (maxS <= 1 && maxO <= 1) {
+    svg.innerHTML = '<text x="180" y="115" text-anchor="middle" font-size="12" fill="' + C.muted + '">対象データがありません</text>';
+    return;
+  }
+
+  var innerW = W - pad.l - pad.r, innerH = H - pad.t - pad.b;
+  var step = innerW / buckets.length;
+  var barW = Math.max(8, Math.min(26, step * 0.52));
+  var cx = function (i) { return pad.l + step * (i + 0.5); };
+  var ys = function (v) { return pad.t + innerH * (1 - v / maxS); };
+  var yo = function (v) { return pad.t + innerH * (1 - v / maxO); };
+
+  var out = [];
+  [0, 0.5, 1].forEach(function (t) {
+    var y = pad.t + innerH * t;
+    out.push('<line x1="' + pad.l + '" y1="' + y + '" x2="' + (W - pad.r) + '" y2="' + y + '" stroke="' + C.line + '"/>');
+    out.push('<text x="' + (pad.l - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="9" fill="' + C.muted + '">' + compactYen(maxS * (1 - t)) + '</text>');
+  });
+
+  buckets.forEach(function (b, i) {
+    out.push('<rect x="' + (cx(i) - barW / 2) + '" y="' + ys(b.sales) + '" width="' + barW +
+      '" height="' + Math.max(0, pad.t + innerH - ys(b.sales)) + '" fill="' + C.gold + '"><title>' +
+      esc(b.name + '曜：' + yen(b.sales)) + '</title></rect>');
+  });
+
+  var pts = buckets.map(function (b, i) { return cx(i) + ',' + yo(b.orders.size); }).join(' ');
+  out.push('<polyline points="' + pts + '" fill="none" stroke="' + C.ink + '" stroke-width="2"/>');
+  buckets.forEach(function (b, i) {
+    out.push('<circle cx="' + cx(i) + '" cy="' + yo(b.orders.size) + '" r="3" fill="#fff" stroke="' + C.ink + '" stroke-width="2"><title>' +
+      esc(b.name + '曜：' + b.orders.size + '受注') + '</title></circle>');
+    out.push('<text x="' + cx(i) + '" y="' + (H - 14) + '" text-anchor="middle" font-size="10" fill="' + C.muted + '">' + b.name + '</text>');
+  });
+
+  svg.innerHTML = out.join('');
+}
+
+// ---------------------------------------------------------------------------
+// Breakdown
+// ---------------------------------------------------------------------------
+
+function renderRank(rows) {
+  var arr = group(rows, state.dim);
+  var mode = $('rankSort').value;
+
+  arr.sort(function (a, b) {
+    switch (mode) {
+      case 'qty_desc': return b.qty - a.qty || b.sales - a.sales;
+      case 'orders_desc': return b.orders.size - a.orders.size || b.sales - a.sales;
+      case 'customers_desc': return b.customers.size - a.customers.size || b.sales - a.sales;
+      case 'name_asc': return a.name.localeCompare(b.name, 'ja');
+      default: return b.sales - a.sales || b.qty - a.qty;
+    }
+  });
+
+  var el = $('rankList');
+  if (!arr.length) {
+    el.innerHTML = '<div class="empty">対象データがありません</div>';
+    $('rankCount').textContent = '';
+    return;
+  }
+
+  var max = Math.max.apply(null, arr.map(function (x) {
+    return mode === 'qty_desc' ? x.qty : x.sales;
+  }).concat([1]));
+
+  el.innerHTML = arr.map(function (x, i) {
+    var basis = mode === 'qty_desc' ? x.qty : x.sales;
+    var width = Math.max(basis > 0 ? 3 : 0, basis / max * 100);
+    var value = mode === 'qty_desc' ? num(x.qty) + '点' : yen(x.sales);
+    return '<div class="rankRow">' +
+      '<div class="rankName"><b>' + (i + 1) + '. ' + esc(x.name) + '</b>' +
+      '<span class="rankSub">' + x.orders.size + '受注 / ' + num(x.qty) + '点 / ' + x.customers.size + '店舗</span></div>' +
+      '<div class="track"><div class="fill' + (mode === 'qty_desc' ? ' silver' : '') + '" style="width:' + width + '%"></div></div>' +
+      '<div class="rankValue">' + value + '</div>' +
+      '</div>';
+  }).join('');
+
+  $('rankCount').textContent = '全 ' + num(arr.length) + ' 件を表示（スクロール）';
+}
+
+// ---------------------------------------------------------------------------
+// Store rotation（§16）
+// ---------------------------------------------------------------------------
+
+function storeRotation(rows) {
+  var basis = basisKey();
+  var by = new Map();
+
+  rows.forEach(function (r) {
+    var k = r.customer || '未入力';
+    if (!by.has(k)) {
+      by.set(k, { name: k, orders: new Map(), sales: 0, qty: 0, products: new Map() });
+    }
+    var s = by.get(k);
+    s.sales += r.lineSales;
+    s.qty += r.qty;
+    var pk = r.product || '未入力';
+    s.products.set(pk, (s.products.get(pk) || 0) + r.qty);
+    if (!s.orders.has(r.orderNo)) s.orders.set(r.orderNo, r[basis] || r.orderDate);
+  });
+
+  var dates = rows.map(function (r) { return r[basis]; }).filter(Boolean).sort();
+  var months = dates.length ? monthSpan(dates[0], dates[dates.length - 1]) : 1;
+
+  return Array.from(by.values()).map(function (s) {
+    // 同日に複数の受注書が起票されても発注機会は1回。
+    // 受注日をユニーク化してから間隔を測らないと、平均発注間隔が0日になり
+    // フォロー候補が実態より大きく超過して見えてしまう。
+    var ds = Array.from(new Set(Array.from(s.orders.values()).filter(Boolean))).sort();
+    var intervals = [];
+    for (var i = 1; i < ds.length; i++) intervals.push(daysBetween(ds[i - 1], ds[i]));
+    return {
+      name: s.name,
+      count: s.orders.size,
+      rotation: s.orders.size / months,
+      avgInterval: intervals.length ? sum(intervals, function (v) { return v; }) / intervals.length : null,
+      last: ds.length ? ds[ds.length - 1] : '',
+      sales: s.sales,
+      qty: s.qty,
+      products: Array.from(s.products.entries()).sort(function (a, b) { return b[1] - a[1]; })
+    };
+  });
+}
+
+function sortRotation(arr) {
+  var mode = $('rotationSort').value;
+  var copy = arr.slice();
+  switch (mode) {
+    case 'count_desc': return copy.sort(function (a, b) { return b.count - a.count || b.sales - a.sales; });
+    case 'sales_desc': return copy.sort(function (a, b) { return b.sales - a.sales || b.count - a.count; });
+    case 'interval_asc': return copy.sort(function (a, b) {
+      return (a.avgInterval === null ? Infinity : a.avgInterval) - (b.avgInterval === null ? Infinity : b.avgInterval) || b.count - a.count;
+    });
+    case 'last_desc': return copy.sort(function (a, b) { return (b.last || '').localeCompare(a.last || '') || b.sales - a.sales; });
+    case 'name_asc': return copy.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); });
+    default: return copy.sort(function (a, b) { return b.rotation - a.rotation || b.sales - a.sales; });
+  }
+}
+
+function renderRotation(rows) {
+  var all = storeRotation(rows);
+  var arr = sortRotation(all);
+
+  // 全件描画する（§23「情報量を削減して見た目だけ簡潔にすること」を避ける）。
+  $('rotationBody').innerHTML = arr.map(function (x) {
+    var chips = x.products.slice(0, 6).map(function (p) {
+      return '<span class="productChip" title="' + esc(p[0]) + '">' + esc(shortProduct(p[0])) +
+        '<b>' + num(p[1]) + '本</b></span>';
+    }).join('');
+    var extra = x.products.length > 6
+      ? '<span class="productChip silver" title="' + esc(x.products.slice(6).map(function (p) { return p[0]; }).join(' / ')) +
+        '">他 <b>+' + (x.products.length - 6) + '</b></span>'
+      : '';
+    return '<tr>' +
+      '<td class="name">' + esc(x.name) + '</td>' +
+      '<td class="n">' + x.count + '</td>' +
+      '<td class="n"><span class="badge">' + x.rotation.toFixed(2) + '回/月</span></td>' +
+      '<td class="n">' + (x.avgInterval === null ? '—' : x.avgInterval.toFixed(1) + '日') + '</td>' +
+      '<td>' + fmtDate(x.last) + '</td>' +
+      '<td class="n">' + yen(x.sales) + '</td>' +
+      '<td class="productQtyCell"><div class="productChips">' + chips + extra + '</div></td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="7" class="empty">対象データがありません</td></tr>';
+
+  $('rotationFoot').innerHTML = arr.length
+    ? '<tr><td>合計 ' + num(arr.length) + ' 店舗</td>' +
+      '<td class="n">' + num(sum(arr, function (x) { return x.count; })) + '</td>' +
+      '<td class="n">—</td><td class="n">—</td><td>—</td>' +
+      '<td class="n">' + yen(sum(arr, function (x) { return x.sales; })) + '</td>' +
+      '<td>' + num(sum(arr, function (x) { return x.qty; })) + '本</td></tr>'
+    : '';
+
+  $('rotationCount').textContent = '全 ' + num(arr.length) + ' 店舗を表示（スクロール）';
+
+  renderFollowUp(all, rows);
+}
+
+function renderFollowUp(all, rows) {
+  var basis = basisKey();
+  var latest = rows.map(function (r) { return r[basis]; }).filter(Boolean).sort().slice(-1)[0];
+
+  var candidates = all
+    .filter(function (x) { return x.avgInterval !== null && x.last && latest; })
+    .map(function (x) {
+      var elapsed = daysBetween(x.last, latest);
+      return Object.assign({}, x, { elapsed: elapsed, over: elapsed - x.avgInterval });
+    })
+    .filter(function (x) { return x.over > 0; })
+    .sort(function (a, b) { return b.over - a.over; });
+
+  $('followList').innerHTML = candidates.map(function (x) {
+    var hot = x.over >= x.avgInterval; // 平均間隔の2倍以上あいている
+    return '<div class="follow' + (hot ? ' hot' : '') + '">' +
+      '<div class="followTop"><b>' + esc(x.name) + '</b><span class="days">+' + x.over.toFixed(0) + '日超過</span></div>' +
+      '<small>最終受注 ' + fmtDate(x.last) + ' / 平均発注間隔 ' + x.avgInterval.toFixed(1) + '日 / ' +
+      x.count + '受注 / ' + yen(x.sales) + '</small></div>';
+  }).join('') || '<div class="empty">現条件ではフォロー候補なし</div>';
+
+  $('followCount').textContent = candidates.length
+    ? '全 ' + num(candidates.length) + ' 店舗を表示（基準日 ' + fmtDate(latest) + '）'
+    : '';
+}
+
+// ---------------------------------------------------------------------------
+// Store × Product（§17）
+// 最重要ルール：1店舗 × 1商品 = 1行。区分は列として展開する。
+// ---------------------------------------------------------------------------
+
+function storeProductRows(rows) {
+  var map = new Map();
+
+  rows.forEach(function (r) {
+    var customer = r.customer || '未入力';
+    var product = r.product || '未入力';
+    var key = customer + ' ' + product;
+
+    if (!map.has(key)) {
+      map.set(key, {
+        customer: customer,
+        product: product,
+        category: r.category,
+        orders: new Set(),
+        last: '',
+        segments: new Map(),
+        totalQty: 0,
+        totalSales: 0
+      });
+    }
+
+    var x = map.get(key);
+    x.orders.add(r.orderNo);
+    if (r.orderDate && (!x.last || r.orderDate > x.last)) x.last = r.orderDate;
+
+    var seg = r.segment || '未入力';
+    if (!x.segments.has(seg)) x.segments.set(seg, { qty: 0, sales: 0 });
+    var s = x.segments.get(seg);
+    s.qty += r.qty;
+    s.sales += r.lineSales;
+
+    x.totalQty += r.qty;
+    x.totalSales += r.lineSales;
+  });
+
+  return Array.from(map.values());
+}
+
+function sortStoreProducts(arr) {
+  var mode = $('storeProductSort').value;
+  var copy = arr.slice();
+  switch (mode) {
+    case 'qty_desc': return copy.sort(function (a, b) { return b.totalQty - a.totalQty || b.totalSales - a.totalSales; });
+    case 'sales_desc': return copy.sort(function (a, b) { return b.totalSales - a.totalSales || b.totalQty - a.totalQty; });
+    case 'last_desc': return copy.sort(function (a, b) { return (b.last || '').localeCompare(a.last || '') || b.totalSales - a.totalSales; });
+    case 'product_asc': return copy.sort(function (a, b) {
+      return a.product.localeCompare(b.product, 'ja') || a.customer.localeCompare(b.customer, 'ja');
+    });
+    default: return copy.sort(function (a, b) {
+      return a.customer.localeCompare(b.customer, 'ja') || a.product.localeCompare(b.product, 'ja');
+    });
+  }
+}
+
+function renderStoreProducts(rows) {
+  var data = sortStoreProducts(storeProductRows(rows));
+  var segments = segmentsOf(rows);
+
+  $('storeProductHead').innerHTML =
+    '<tr>' +
+      '<th rowspan="2">店舗・取引先</th>' +
+      '<th rowspan="2">商品</th>' +
+      segments.map(function (s) { return '<th class="segmentGroup" colspan="2">' + esc(s) + '</th>'; }).join('') +
+      '<th rowspan="2" class="n">合計本数</th>' +
+      '<th rowspan="2" class="n">商品売上</th>' +
+      '<th rowspan="2" class="n">受注回数</th>' +
+      '<th rowspan="2">最終受注</th>' +
+    '</tr>' +
+    '<tr>' +
+      segments.map(function () {
+        return '<th class="segmentSub">発注数</th><th class="segmentSub">小計</th>';
+      }).join('') +
+    '</tr>';
+
+  var colCount = 2 + segments.length * 2 + 4;
+
+  $('storeProductBody').innerHTML = data.map(function (x) {
+    var cells = segments.map(function (seg) {
+      var s = x.segments.get(seg) || { qty: 0, sales: 0 };
+      var q = Math.round(s.qty);
+      return '<td class="segQty' + (q === 0 ? ' zero' : '') + '">' + num(q) + '</td>' +
+        '<td class="segSales' + (s.sales === 0 ? ' zero' : '') + '">' + yen(s.sales) + '</td>';
+    }).join('');
+
+    return '<tr>' +
+      '<td class="name">' + esc(x.customer) + '</td>' +
+      '<td class="name2" title="' + esc(x.product) + '">' + esc(x.product) + '</td>' +
+      cells +
+      '<td class="n">' + num(x.totalQty) + '</td>' +
+      '<td class="n">' + yen(x.totalSales) + '</td>' +
+      '<td class="n">' + x.orders.size + '</td>' +
+      '<td>' + fmtDate(x.last) + '</td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="' + colCount + '" class="empty">対象データがありません</td></tr>';
+
+  if (data.length) {
+    var footCells = segments.map(function (seg) {
+      var q = 0, s = 0;
+      data.forEach(function (x) {
+        var v = x.segments.get(seg);
+        if (v) { q += v.qty; s += v.sales; }
+      });
+      return '<td class="segQty">' + num(q) + '</td><td class="segSales">' + yen(s) + '</td>';
+    }).join('');
+
+    $('storeProductFoot').innerHTML = '<tr>' +
+      '<td>合計</td><td>' + num(data.length) + ' 行</td>' + footCells +
+      '<td class="n">' + num(sum(data, function (x) { return x.totalQty; })) + '</td>' +
+      '<td class="n">' + yen(sum(data, function (x) { return x.totalSales; })) + '</td>' +
+      '<td class="n">—</td><td>—</td></tr>';
+  } else {
+    $('storeProductFoot').innerHTML = '';
+  }
+
+  $('storeProductCount').textContent =
+    '全 ' + num(data.length) + ' 行（1店舗 × 1商品 = 1行）／区分 ' + segments.length + ' 列を展開';
+}
+
+// ---------------------------------------------------------------------------
+// Operating signals
+// ---------------------------------------------------------------------------
+
+function renderInsights(rows, prev) {
+  var m = metrics(rows);
+  var orders = ordersOf(rows);
+  var items = [];
+
+  // 1. リード種別の入力率
+  var missingLead = orders.filter(function (r) { return r.lead === '未入力'; }).length;
+  if (orders.length) {
+    var rate = missingLead / orders.length * 100;
+    items.push({
+      flag: rate >= 50,
+      title: 'リード種別 未入力',
+      body: '<span class="metric">' + missingLead + ' / ' + orders.length + '受注</span>（' + rate.toFixed(0) + '%）が未入力です。' +
+        '営業経路別の比較精度を上げるには、受注登録時の入力ルール整備が有効です。'
+    });
+  }
+
+  // 2. 売上TOP商品
+  var topProducts = group(rows, 'product').sort(function (a, b) { return b.sales - a.sales; });
+  if (topProducts.length) {
+    var t = topProducts[0];
+    items.push({
+      title: '売上TOP商品',
+      body: esc(t.name) + '：<span class="metric">' + yen(t.sales) + '</span>（' + t.customers.size + '店舗 / ' + t.orders.size + '受注）。' +
+        '比較分析の「商品別」タブで下位商品まで確認できます。'
+    });
+  }
+
+  // 3. 再発注実績
+  var rot = storeRotation(rows);
+  var repeaters = rot.filter(function (x) { return x.count >= 2; }).length;
+  items.push({
+    title: '再発注実績店舗',
+    body: '対象条件内で2回以上受注している店舗は <span class="metric">' + repeaters + ' / ' + rot.length + '店</span>。' +
+      '店舗別 再発注回転から営業フォロー候補を抽出できます。'
+  });
+
+  // 4. サンプル比率
+  var segTotals = group(rows, 'segment');
+  var totalQty = sum(segTotals, function (x) { return x.qty; });
+  var sample = segTotals.filter(function (x) { return x.name === 'サンプル'; })[0];
+  if (sample && totalQty) {
+    var sr = sample.qty / totalQty * 100;
+    items.push({
+      flag: sr >= 30,
+      title: 'サンプル出荷比率',
+      body: '発注数量の <span class="metric">' + sr.toFixed(1) + '%</span>（' + num(sample.qty) + ' / ' + num(totalQty) + '点）がサンプルです。' +
+        '販売への転換状況は「新規/リピート」フィルターと併せて確認してください。'
+    });
+  }
+
+  // 5. 前期比の要約
+  if (prev && prev.rows.length) {
+    var p = metrics(prev.rows);
+    var diff = p.sales ? (m.sales - p.sales) / p.sales * 100 : null;
+    items.push({
+      flag: diff !== null && diff < 0,
+      title: '前期比サマリー',
+      body: '比較期間 ' + esc(prev.from) + ' 〜 ' + esc(prev.to) + '：商品売上 ' + yen(p.sales) + ' → <span class="metric">' + yen(m.sales) + '</span>' +
+        (diff === null ? '' : '（' + (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%）') + '。受注件数 ' + p.orders + ' → ' + m.orders + '件。'
+    });
+  } else {
+    items.push({
+      title: '前期比サマリー',
+      body: '比較期間に対象データがないため、前期比は算出していません。開始日を後ろにずらすと比較できます。'
+    });
+  }
+
+  $('insights').innerHTML = items.map(function (x) {
+    return '<div class="insight' + (x.flag ? ' flag' : '') + '"><b>' + esc(x.title) + '</b><p>' + x.body + '</p></div>';
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+
+function render() {
+  var rows = currentRows();
+  var prev = previousRows();
+
+  renderKpis(rows, prev);
+  renderTrend(rows);
+  renderMix(rows);
+  renderCategory(rows);
+  renderWeekday(rows);
+  renderRank(rows);
+  renderRotation(rows);
+  renderStoreProducts(rows);
+  renderInsights(rows, prev);
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+function bindEvents() {
+  ['basis', 'from', 'to'].forEach(function (id) {
+    $(id).addEventListener('change', render);
+  });
+
+  $('rankSort').addEventListener('change', function () { renderRank(currentRows()); });
+  $('rotationSort').addEventListener('change', function () { renderRotation(currentRows()); });
+  $('storeProductSort').addEventListener('change', function () { renderStoreProducts(currentRows()); });
+  $('reset').addEventListener('click', resetFilters);
+
+  document.querySelectorAll('.tab[data-dim]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab[data-dim]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.dim = btn.getAttribute('data-dim');
+      renderRank(currentRows());
+    });
+  });
+
+  document.querySelectorAll('.tab[data-measure]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab[data-measure]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.measure = btn.getAttribute('data-measure');
+      renderTrend(currentRows());
+    });
+  });
+
+  document.querySelectorAll('.tab[data-grain]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.tab[data-grain]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.grain = btn.getAttribute('data-grain');
+      renderTrend(currentRows());
+    });
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.multiSelect')) {
+      document.querySelectorAll('.multiSelect.open').forEach(function (x) {
+        x.classList.remove('open');
+        x.querySelector('.multiTrigger').setAttribute('aria-expanded', 'false');
+      });
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.multiSelect.open').forEach(function (x) {
+      x.classList.remove('open');
+      x.querySelector('.multiTrigger').setAttribute('aria-expanded', 'false');
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+
+loadData();
+
+})();
+</script>
