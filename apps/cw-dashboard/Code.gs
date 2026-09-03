@@ -22,6 +22,9 @@
 // 定数
 // ---------------------------------------------------------------------------
 
+/** 区分の空欄を表すラベル。構成品の判定に使うので定数化する。 */
+var BLANK_SEGMENT = '未入力';
+
 var SHEET_RAW_B2B = 'RAW_B2B';
 var SHEET_PRODUCT_MASTER = 'Product_Master';
 var SHEET_CONFIG = 'Config';
@@ -63,8 +66,9 @@ var COL = {
 
 /** Config シートが無い場合の既定値。 */
 var DEFAULT_CONFIG = {
-  // 業務店営業ページで対象とする顧客種別。空にすると全件。
-  b2bCustomerTypes: ['飲食店', '卸売', '量販店・百貨店', '酒販小売'],
+  // 対象とする顧客種別。空 = 全件（既定）。
+  // 特定チャネルだけに絞りたい場合は Config で列挙する。
+  b2bCustomerTypes: [],
   // 集計対象とする受注ステータス。
   includeStatuses: ['確定済み', '完了'],
   // 行を除外するステータス（合計行など）。
@@ -163,6 +167,8 @@ function getB2BData() {
       scopeCustomerTypes: scopeTypes,
       includeStatuses: config.includeStatuses,
       hasProductMaster: master.hasMaster,
+      shippingTotal: sumOrderShipping_(scoped),
+      setAllocation: normalized.setAllocation,
       costCoverage: normalized.costCoverage,
       costNotice: master.costNotice,
       warnings: normalized.warnings
@@ -238,6 +244,11 @@ function normalizeData_(raw, master, config) {
       itemType: resolved.itemType,
       unitCost: unitCost,
       lineCost: unitCost * parseNumber_(r[COL.qty]),
+      // allocatedCost はセット構成品の原価をセット商品へ寄せたあとの原価。
+      // 受注内の合計は lineCost と一致するので、集計は常にこちらを使う。
+      allocatedCost: unitCost * parseNumber_(r[COL.qty]),
+      costAllocation: '',
+      isSetComponent: false,
       hasCost: hasCost,
       sku: text_(r[COL.sku]),
       itemKind: text_(r[COL.itemKind]),
@@ -246,7 +257,10 @@ function normalizeData_(raw, master, config) {
       qty: parseNumber_(r[COL.qty]),
       unitPrice: parseNumber_(r[COL.unitPrice]),
       discountAmount: parseNumber_(r[COL.discountAmount]),
-      lineSales: parseNumber_(r[COL.lineSales]),
+      // 売上（税抜）は AQ列「総額」＝ 販売価格×発注数 − 割引額。
+      // AS列「小計」は割引前なので、定価売上として別に持つ。
+      lineSales: parseNumber_(r[COL.grossTotal]),
+      listSales: parseNumber_(r[COL.lineSales]),
       orderTotal: parseNumber_(r[COL.orderTotal]),
       shipping: parseNumber_(r[COL.shipping])
     });
@@ -285,9 +299,19 @@ function normalizeData_(raw, master, config) {
     warnings.push('Product_Master シートが無いため、商品カテゴリは商品名の【…】表記から自動判定しています。');
   }
 
+  var alloc = allocateSetCosts_(out);
+  if (alloc.proratedOrders) {
+    warnings.push(
+      'ギフトセットが複数ある ' + alloc.proratedOrders + ' 受注では、構成品原価 ¥' +
+      Math.round(alloc.proratedCost).toLocaleString('ja-JP') +
+      ' をセットの発注数比で按分しています（商品別粗利率のみ概算。受注・全体の合計は正確）。'
+    );
+  }
+
   return {
     rows: out,
     warnings: warnings,
+    setAllocation: alloc,
     costCoverage: {
       withCost: Object.keys(costed).length,
       total: Object.keys(costed).length + uncostedNames.length,
@@ -340,6 +364,75 @@ function pad2_(n) { return ('0' + n).slice(-2); }
 function text_(v) {
   if (v === null || v === undefined) return '';
   return String(v).trim();
+}
+
+// ---------------------------------------------------------------------------
+// セット商品と構成品の紐づけ
+// ---------------------------------------------------------------------------
+
+/**
+ * ギフトセットの原価を、同じ受注内の構成品行から寄せる。
+ *
+ * データ構造：
+ *   セット商品（商品の種類 = 販売項目）は売上だけを持ち、購入価格は¥0。
+ *   その原価は同じ受注内の「在庫項目 かつ 売上¥0 かつ 区分が空欄」の行に入る。
+ *   区分が空欄の売上¥0行はセットのある受注にしか現れないため（セット無しの
+ *   受注では0件）、区分でサンプル・協賛・イベントと確実に切り分けられる。
+ *
+ * 受注内の原価合計は変えないので、受注単位・店舗別・全体の数値は不変。
+ * 変わるのは商品別・カテゴリ別・区分別の内訳だけ。
+ */
+function allocateSetCosts_(rows) {
+  var byOrder = {};
+  rows.forEach(function (r) {
+    (byOrder[r.orderNo] = byOrder[r.orderNo] || []).push(r);
+  });
+
+  var stats = {
+    exactOrders: 0, exactCost: 0,
+    proratedOrders: 0, proratedCost: 0,
+    componentRows: 0
+  };
+
+  Object.keys(byOrder).forEach(function (orderNo) {
+    var rs = byOrder[orderNo];
+    var sets = rs.filter(function (r) { return r.itemKind === '販売項目'; });
+    var comps = rs.filter(function (r) {
+      return r.itemKind === '在庫項目' && r.lineSales <= 0 && r.segment === BLANK_SEGMENT;
+    });
+    if (!sets.length || !comps.length) return;
+
+    var pool = 0;
+    comps.forEach(function (r) { pool += r.allocatedCost; });
+    if (pool <= 0) return;
+
+    comps.forEach(function (r) {
+      r.allocatedCost = 0;
+      r.isSetComponent = true;
+    });
+    stats.componentRows += comps.length;
+
+    if (sets.length === 1) {
+      sets[0].allocatedCost += pool;
+      sets[0].costAllocation = 'exact';
+      stats.exactOrders++;
+      stats.exactCost += pool;
+    } else {
+      // セットが複数あると、どの構成品がどのセットのものか特定できない。
+      // 発注数比で按分し、概算であることを costAllocation で示す。
+      var totalQty = 0;
+      sets.forEach(function (r) { totalQty += r.qty; });
+      if (!totalQty) totalQty = sets.length;
+      sets.forEach(function (r) {
+        r.allocatedCost += pool * ((r.qty || 1) / totalQty);
+        r.costAllocation = 'prorated';
+      });
+      stats.proratedOrders++;
+      stats.proratedCost += pool;
+    }
+  });
+
+  return stats;
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +651,18 @@ function buildOptions_(rows) {
   });
 
   return out;
+}
+
+/** 配送料は受注ヘッダの値。受注ごとに1回だけ数える。 */
+function sumOrderShipping_(rows) {
+  var seen = {};
+  var total = 0;
+  rows.forEach(function (r) {
+    if (seen[r.orderNo]) return;
+    seen[r.orderNo] = true;
+    total += r.shipping || 0;
+  });
+  return total;
 }
 
 function countUnique_(rows, key) {

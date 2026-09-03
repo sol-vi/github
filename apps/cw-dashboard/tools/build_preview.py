@@ -27,7 +27,8 @@ APP_DIR = Path(__file__).resolve().parent.parent
 
 # --- Code.gs と同じ設定 -----------------------------------------------------
 
-B2B_CUSTOMER_TYPES = ["飲食店", "卸売", "量販店・百貨店", "酒販小売"]
+# 対象とする顧客種別。空 = 全件（既定）。
+B2B_CUSTOMER_TYPES: list[str] = []
 INCLUDE_STATUSES = {"確定済み", "完了"}
 EXCLUDE_STATUSES = {"合計"}
 BLANK = "未入力"
@@ -187,6 +188,10 @@ def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict],
             "itemType": resolved["itemType"],
             "unitCost": unit_cost,
             "lineCost": unit_cost * parse_number(r.get("発注数")),
+            # allocatedCost はセット構成品の原価をセット商品へ寄せたあとの原価
+            "allocatedCost": unit_cost * parse_number(r.get("発注数")),
+            "costAllocation": "",
+            "isSetComponent": False,
             "hasCost": has_cost,
             "sku": (r.get("SKU（在庫保管単位）") or "").strip(),
             "itemKind": (r.get("商品の種類") or "").strip(),
@@ -195,7 +200,9 @@ def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict],
             "qty": parse_number(r.get("発注数")),
             "unitPrice": parse_number(r.get("販売価格")),
             "discountAmount": parse_number(r.get("割引額")),
-            "lineSales": parse_number(r.get("小計")),
+            # 売上（税抜）は AQ列「総額」＝ 販売価格×発注数 − 割引額
+            "lineSales": parse_number(r.get("総額")),
+            "listSales": parse_number(r.get("小計")),
             "orderTotal": parse_number(r.get("合計")),
             "shipping": parse_number(r.get("配送料")),
         })
@@ -222,6 +229,73 @@ def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict],
     return out, warnings, uncosted, zero_sold
 
 
+def allocate_set_costs(rows: list[dict]) -> dict:
+    """ギフトセットの原価を同じ受注内の構成品行から寄せる（Code.gs の移植）。
+
+    セット商品（商品の種類=販売項目）は売上だけを持ち購入価格¥0で、その原価は
+    「在庫項目 かつ 売上¥0 かつ 区分が空欄」の行に入る。区分が空欄の売上¥0行は
+    セットのある受注にしか現れないため、サンプル・協賛・イベントと確実に分かれる。
+
+    受注内の原価合計は変えないので、受注単位・店舗別・全体の数値は不変。
+    """
+    by_order: dict[str, list[dict]] = {}
+    for r in rows:
+        by_order.setdefault(r["orderNo"], []).append(r)
+
+    stats = {
+        "exactOrders": 0, "exactCost": 0.0,
+        "proratedOrders": 0, "proratedCost": 0.0,
+        "componentRows": 0,
+    }
+
+    for rs in by_order.values():
+        sets = [r for r in rs if r["itemKind"] == "販売項目"]
+        comps = [
+            r for r in rs
+            if r["itemKind"] == "在庫項目" and r["lineSales"] <= 0 and r["segment"] == BLANK
+        ]
+        if not sets or not comps:
+            continue
+
+        pool = sum(r["allocatedCost"] for r in comps)
+        if pool <= 0:
+            continue
+
+        for r in comps:
+            r["allocatedCost"] = 0.0
+            r["isSetComponent"] = True
+        stats["componentRows"] += len(comps)
+
+        if len(sets) == 1:
+            sets[0]["allocatedCost"] += pool
+            sets[0]["costAllocation"] = "exact"
+            stats["exactOrders"] += 1
+            stats["exactCost"] += pool
+        else:
+            # セットが複数だとどの構成品がどのセットのものか特定できないので
+            # 発注数比で按分し、概算であることを costAllocation で示す
+            total_qty = sum(r["qty"] for r in sets) or len(sets)
+            for r in sets:
+                r["allocatedCost"] += pool * ((r["qty"] or 1) / total_qty)
+                r["costAllocation"] = "prorated"
+            stats["proratedOrders"] += 1
+            stats["proratedCost"] += pool
+
+    return stats
+
+
+def sum_order_shipping(rows: list[dict]) -> float:
+    """配送料は受注ヘッダの値。受注ごとに1回だけ数える。"""
+    seen: set[str] = set()
+    total = 0.0
+    for r in rows:
+        if r["orderNo"] in seen:
+            continue
+        seen.add(r["orderNo"])
+        total += r["shipping"]
+    return total
+
+
 def build_options(rows: list[dict]) -> dict:
     options = {}
     for key in OPTION_KEYS:
@@ -239,6 +313,14 @@ def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
 
     master, cost_notice = load_product_master(master_path)
     rows, warnings, uncosted, zero_sold = normalize(raw_rows, master)
+
+    alloc = allocate_set_costs(rows)
+    if alloc["proratedOrders"]:
+        warnings.append(
+            f"ギフトセットが複数ある {alloc['proratedOrders']} 受注では、構成品原価 "
+            f"¥{round(alloc['proratedCost']):,} をセットの発注数比で按分しています"
+            "（商品別粗利率のみ概算。受注・全体の合計は正確）。"
+        )
 
     allow = set(B2B_CUSTOMER_TYPES)
     scoped = [r for r in rows if r["customerType"] in allow] if allow else rows
@@ -259,6 +341,8 @@ def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
             "coverageFrom": dates[0] if dates else "",
             "coverageTo": dates[-1] if dates else "",
             "scopeCustomerTypes": B2B_CUSTOMER_TYPES,
+            "shippingTotal": sum_order_shipping(scoped),
+            "setAllocation": alloc,
             "includeStatuses": sorted(INCLUDE_STATUSES),
             "hasProductMaster": bool(master),
             "costCoverage": {

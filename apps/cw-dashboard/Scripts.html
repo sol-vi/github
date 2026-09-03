@@ -214,7 +214,7 @@ function initHeader() {
   var scope = (m.includeStatuses || []).join('・');
   var types = (m.scopeCustomerTypes && m.scopeCustomerTypes.length)
     ? m.scopeCustomerTypes.join('・')
-    : '全顧客種別';
+    : '全顧客種別（フィルターで絞り込み可）';
   $('scopeLabel').textContent = scope + '／' + types;
 
   var notes = [
@@ -223,16 +223,19 @@ function initHeader() {
     '※ 売上は明細「小計」（税抜）の合計です。配送料・調整額は含みません。',
     '※ 商品名の表記ゆれは Product_Master / GAS 側で正規化しています。'
   ];
-  notes.push('※ 原価は明細の<b>購入価格 × 発注数</b>です。粗利 = 販売価格 − 購入価格（×発注数）。配送料は含みません。');
+  notes.push('※ 商品売上（税抜）は明細 <b>AQ列「総額」</b>（＝販売価格×発注数 − 割引額）の合計です。' +
+    'AS列「小計」は割引前の定価なので使っていません。配送料・調整額・消費税は含みません。');
+  notes.push('※ 原価は明細の<b>購入価格 × 発注数</b>。粗利 = 総額 − 原価。');
+  notes.push('※ <b>ギフトセットの原価は構成品から寄せています。</b>' +
+    'セット商品（商品の種類＝販売項目）は売上だけを持ち購入価格が¥0で、原価は同じ受注内の' +
+    '「在庫項目・売上¥0・区分空欄」の行に入っています。これをセット商品へ集約することで、' +
+    '商品別・カテゴリ別の粗利率も実態に沿った値になります。');
   notes.push('※ 販売粗利・無償提供原価は<b>受注単位</b>で分けています。' +
-    'ギフトセットは売上のみの行で、その原価は同じ受注内の構成品行（売上¥0）に分かれているため、' +
-    '明細行単位で分けると構成品が無償扱いになり粗利率が約10ポイント過大に出ます。');
+    '明細行単位で分けると、セット構成品がサンプルと同じ無償扱いになるためです。');
   notes.push('※ <b>純粗利 = 販売粗利 − 無償提供原価</b>（全明細の 売上 − 原価 と一致）。' +
     'サンプル・協賛の原価まで引いた、実際に手元に残る利益です。');
-  notes.push('※ 資材（化粧箱・同梱物・ギフト資材）は販売価格が¥0のため、単体では粗利がマイナスになります。' +
-    'セット販売の原価として同じ受注内で回収されます。');
-  notes.push('※ <b>商品別・カテゴリ別・区分別の粗利率</b>は、この構造上ギフトセットが100%、' +
-    'その構成品がマイナスに振れます。店舗別・顧客種別別・リード種別別は受注単位で閉じるため正確です。');
+  notes.push('※ <b>配送料は売上・原価のどちらにも含めず、独立したKPIとして別計算</b>しています' +
+    '（受注ヘッダの値のため、明細行への按分ルールがないため）。');
   (m.warnings || []).forEach(function (w) { notes.push('※ ' + esc(w)); });
   notes.push('※ 読込元 <b>' + esc(m.sheet) + '</b>（' + num(m.sourceRows) + '行 → 対象 ' + num(m.rowCount) + '行 / ' + num(m.orderCount) + '受注）');
   $('footer').innerHTML = notes.join('<br>');
@@ -487,13 +490,25 @@ function metrics(rows) {
   var sold = rows.filter(function (r) { return soldOrders[r.orderNo]; });
   var free = rows.filter(function (r) { return !soldOrders[r.orderNo]; });
 
+  // 原価は allocatedCost（セット構成品の原価をセット商品へ寄せたあとの値）を使う。
+  // 受注内の合計は生の lineCost と一致するので、受注単位・店舗別・全体の数値は不変で、
+  // 商品別・カテゴリ別・区分別の内訳だけが正確になる。
   var soldSales = sum(sold, function (r) { return r.lineSales; });
-  var soldCost = sum(sold, function (r) { return r.lineCost || 0; });
-  var freeCost = sum(free, function (r) { return r.lineCost || 0; });
+  var soldCost = sum(sold, function (r) { return r.allocatedCost || 0; });
+  var freeCost = sum(free, function (r) { return r.allocatedCost || 0; });
   var costKnown = rows.some(function (r) { return r.hasCost; });
 
   var totalSales = sum(rows, function (r) { return r.lineSales; });
-  var totalCost = sum(rows, function (r) { return r.lineCost || 0; });
+  var totalCost = sum(rows, function (r) { return r.allocatedCost || 0; });
+
+  // 配送料は受注ヘッダの値。明細行に同じ値が並ぶので受注ごとに1回だけ数える。
+  var shipSeen = {};
+  var shipping = 0;
+  rows.forEach(function (r) {
+    if (shipSeen[r.orderNo]) return;
+    shipSeen[r.orderNo] = true;
+    shipping += r.shipping || 0;
+  });
 
   return {
     sales: totalSales,
@@ -508,6 +523,7 @@ function metrics(rows) {
     // 純粗利＝全明細の売上−原価。販売粗利 − 無償提供原価 と必ず一致する。
     netProfit: costKnown ? totalSales - totalCost : null,
     netMargin: (costKnown && totalSales) ? (totalSales - totalCost) / totalSales : null,
+    shipping: shipping,
     orders: orders.length,
     stores: stores,
     repeatRate: orders.length ? repeats / orders.length : 0,
@@ -556,6 +572,7 @@ function renderKpis(rows, prev) {
   $('kpiFreeCost').textContent = m.freeCost === null ? '原価未設定' : yen(m.freeCost);
   $('kpiNet').textContent = m.netProfit === null ? '原価未設定' : yen(m.netProfit);
   $('kpiNetMargin').textContent = m.netMargin === null ? '原価未設定' : (m.netMargin * 100).toFixed(1) + '%';
+  $('kpiShipping').textContent = yen(m.shipping);
   $('kpiOrders').textContent = num(m.orders);
   $('kpiStores').textContent = num(m.stores);
   $('kpiQty').textContent = num(m.qty);
@@ -569,6 +586,7 @@ function renderKpis(rows, prev) {
   setDelta('kpiFreeCostDelta', m.freeCost, p && p.freeCost, { higherIsBetter: false });
   setDelta('kpiNetDelta', m.netProfit, p && p.netProfit);
   setDelta('kpiNetMarginDelta', m.netMargin, p && p.netMargin);
+  setDelta('kpiShippingDelta', m.shipping, p && p.shipping, { higherIsBetter: false });
   setDelta('kpiOrdersDelta', m.orders, p && p.orders);
   setDelta('kpiStoresDelta', m.stores, p && p.stores);
   setDelta('kpiQtyDelta', m.qty, p && p.qty);
@@ -599,8 +617,8 @@ function group(rows, key) {
     var x = map.get(k);
     x.sales += r.lineSales;
     x.qty += r.qty;
-    if (soldOrders[r.orderNo]) { x.soldSales += r.lineSales; x.soldCost += r.lineCost || 0; }
-    else { x.freeCost += r.lineCost || 0; }
+    if (soldOrders[r.orderNo]) { x.soldSales += r.lineSales; x.soldCost += r.allocatedCost || 0; }
+    else { x.freeCost += r.allocatedCost || 0; }
     if (r.hasCost) x.costKnown = true;
     x.orders.add(r.orderNo);
     x.customers.add(r.customer);
@@ -634,7 +652,7 @@ function bandsOf(rows, dim, measure) {
   rows.forEach(function (r) {
     var k = r[dim] || '未入力';
     var v = measure === 'qty' ? r.qty
-      : measure === 'gross' ? r.lineSales - (r.lineCost || 0)
+      : measure === 'gross' ? r.lineSales - (r.allocatedCost || 0)
       : r.lineSales;
     totals.set(k, (totals.get(k) || 0) + v);
   });
@@ -703,7 +721,7 @@ function series(rows, grain, dim, top) {
     b.segSales[seg] += r.lineSales;
     b.segQty[seg] += r.qty;
     if (soldOrders[r.orderNo]) {
-      var g = r.lineSales - (r.lineCost || 0);
+      var g = r.lineSales - (r.allocatedCost || 0);
       b.gross += g;
       b.segGross[seg] += g;
     }
@@ -1141,7 +1159,7 @@ function monthlyMatrix(rows) {
     x.totalSales += r.lineSales;
     x.totalQty += r.qty;
     if (soldOrders[r.orderNo]) {
-      var g = r.lineSales - (r.lineCost || 0);
+      var g = r.lineSales - (r.allocatedCost || 0);
       c.gross += g;
       x.totalGross += g;
     }
@@ -1290,7 +1308,7 @@ function storeRotation(rows) {
     var s = by.get(k);
     s.sales += r.lineSales;
     s.qty += r.qty;
-    if (soldOrders[r.orderNo]) { s.soldSales += r.lineSales; s.soldCost += r.lineCost || 0; }
+    if (soldOrders[r.orderNo]) { s.soldSales += r.lineSales; s.soldCost += r.allocatedCost || 0; }
     if (r.hasCost) s.costKnown = true;
     var pk = r.product || '未入力';
     s.products.set(pk, (s.products.get(pk) || 0) + r.qty);

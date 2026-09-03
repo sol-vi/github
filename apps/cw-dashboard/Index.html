@@ -157,13 +157,13 @@
         <div class="label">商品売上</div>
         <div class="value" id="kpiSales">—</div>
         <div id="kpiSalesDelta"></div>
-        <div class="note">明細「小計」合計・税抜</div>
+        <div class="note">明細「総額」合計・税抜・割引後</div>
       </div>
       <div class="card kpi accent">
         <div class="label">販売粗利</div>
         <div class="value" id="kpiGross">—</div>
         <div id="kpiGrossDelta"></div>
-        <div class="note">売上のある受注の 売上 − 原価</div>
+        <div class="note">売上のある受注の 総額 − 原価</div>
       </div>
       <div class="card kpi accent">
         <div class="label">粗利率</div>
@@ -188,6 +188,12 @@
         <div class="value" id="kpiNetMargin">—</div>
         <div id="kpiNetMarginDelta"></div>
         <div class="note">純粗利 / 商品売上</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">配送料</div>
+        <div class="value" id="kpiShipping">—</div>
+        <div id="kpiShippingDelta"></div>
+        <div class="note">受注ヘッダ・売上原価に含めず別計算</div>
       </div>
       <div class="card kpi">
         <div class="label">発注数量</div>
