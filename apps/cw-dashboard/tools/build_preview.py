@@ -203,7 +203,15 @@ def build_payload(csv_path: Path) -> dict:
 
 # --- HTML 組み立て ----------------------------------------------------------
 
-def build_html(payload: dict) -> str:
+ARTIFACT_TITLE = "CW 業務店営業ダッシュボード"
+
+
+def build_html(payload: dict, fmt: str = "standalone") -> str:
+    """fmt="standalone" は完全なHTML文書、"artifact" は Artifact 公開用の断片。
+
+    Artifact は公開時に doctype / html / head / body の骨組みを付けるので、
+    こちらは <title> + <style> + 本文 + <script> だけを出す。
+    """
     index = (APP_DIR / "Index.html").read_text(encoding="utf-8")
     styles = (APP_DIR / "Styles.html").read_text(encoding="utf-8")
     scripts = (APP_DIR / "Scripts.html").read_text(encoding="utf-8")
@@ -217,18 +225,39 @@ def build_html(payload: dict) -> str:
 
     html = index.replace("<?!= include('Styles'); ?>", styles)
     html = html.replace("<?!= include('Scripts'); ?>", banner + scripts)
-    return html
+
+    if fmt == "standalone":
+        return html
+
+    # Artifact 用に、外側の文書構造だけを剥がす
+    body = re.search(r"<body>(.*)</body>", html, re.S)
+    if not body:
+        raise SystemExit("Index.html から <body> を取り出せませんでした")
+
+    return (
+        f"<title>{ARTIFACT_TITLE}</title>\n"
+        + styles.strip()
+        + "\n"
+        + body.group(1).strip()
+        + "\n"
+    )
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--csv", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument(
+        "--format",
+        choices=["standalone", "artifact"],
+        default="standalone",
+        help="standalone=ブラウザで直接開けるHTML文書 / artifact=Artifact公開用の断片",
+    )
     args = ap.parse_args()
 
     payload = build_payload(args.csv)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(build_html(payload), encoding="utf-8")
+    args.out.write_text(build_html(payload, args.format), encoding="utf-8")
 
     meta = payload["meta"]
     print(f"wrote {args.out} ({args.out.stat().st_size:,} bytes)")
