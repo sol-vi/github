@@ -163,7 +163,7 @@
         <div class="label">販売粗利</div>
         <div class="value" id="kpiGross">—</div>
         <div id="kpiGrossDelta"></div>
-        <div class="note">売上のある行の 売上 − 原価</div>
+        <div class="note">売上のある受注の 売上 − 原価</div>
       </div>
       <div class="card kpi accent">
         <div class="label">粗利率</div>
@@ -175,7 +175,19 @@
         <div class="label">無償提供原価</div>
         <div class="value" id="kpiFreeCost">—</div>
         <div id="kpiFreeCostDelta"></div>
-        <div class="note">売上¥0の行の原価合計</div>
+        <div class="note">売上¥0の受注の原価合計</div>
+      </div>
+      <div class="card kpi accent">
+        <div class="label">純粗利</div>
+        <div class="value" id="kpiNet">—</div>
+        <div id="kpiNetDelta"></div>
+        <div class="note">販売粗利 − 無償提供原価</div>
+      </div>
+      <div class="card kpi accent">
+        <div class="label">純粗利率</div>
+        <div class="value" id="kpiNetMargin">—</div>
+        <div id="kpiNetMarginDelta"></div>
+        <div class="note">純粗利 / 商品売上</div>
       </div>
       <div class="card kpi">
         <div class="label">発注数量</div>

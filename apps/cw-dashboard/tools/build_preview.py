@@ -159,6 +159,11 @@ def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict],
         if resolved["name"] != product_raw:
             renamed.add(product_raw)
 
+        # 原価は明細の「購入価格」を一次情報とする（Code.gs と同じ）
+        purchase_text = (r.get("購入価格") or "").strip()
+        unit_cost = parse_number(purchase_text) if purchase_text else resolved["cost"]
+        has_cost = purchase_text != "" or resolved["hasCost"]
+
         ctype_raw = (r.get("顧客種別") or "").strip()
         ctype = re.sub(r"\s+", " ", ctype_raw).strip()
         if ctype != ctype_raw:
@@ -180,9 +185,12 @@ def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict],
             "productRaw": product_raw,
             "category": resolved["category"],
             "itemType": resolved["itemType"],
-            "unitCost": resolved["cost"],
-            "lineCost": resolved["cost"] * parse_number(r.get("発注数")),
-            "hasCost": resolved["hasCost"],
+            "unitCost": unit_cost,
+            "lineCost": unit_cost * parse_number(r.get("発注数")),
+            "hasCost": has_cost,
+            "sku": (r.get("SKU（在庫保管単位）") or "").strip(),
+            "itemKind": (r.get("商品の種類") or "").strip(),
+            "prefecture": (r.get("都道府県（納品先）") or "").strip(),
             "segment": (r.get("区分") or "").strip() or BLANK,
             "qty": parse_number(r.get("発注数")),
             "unitPrice": parse_number(r.get("販売価格")),
@@ -203,16 +211,15 @@ def normalize(rows: list[dict], master: dict | None = None) -> tuple[list[dict],
     if not master:
         warnings.append("Product_Master シートが無いため、商品カテゴリは商品名の【…】表記から自動判定しています。")
 
+    # 購入価格の欠落・¥0 はスコープ絞り込み後の件数でバナーに出すため、
+    # ここでは warnings に足さない（全データ基準になり数字が食い違う）。
     uncosted = sorted({r["product"] for r in out if not r["hasCost"]})
-    if uncosted:
-        warnings.append(
-            f"原価が未設定の商品が {len(uncosted)} 件あります（"
-            + " / ".join(uncosted[:3])
-            + (" ほか" if len(uncosted) > 3 else "")
-            + "）。粗利はこれらを原価0として計算するため過大に出ます。"
-        )
+    zero_sold = sorted({
+        r["product"] for r in out
+        if r["hasCost"] and r["unitCost"] == 0 and r["lineSales"] > 0
+    })
 
-    return out, warnings
+    return out, warnings, uncosted, zero_sold
 
 
 def build_options(rows: list[dict]) -> dict:
@@ -231,7 +238,7 @@ def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
         raw_rows = list(csv.DictReader(fh))
 
     master, cost_notice = load_product_master(master_path)
-    rows, warnings = normalize(raw_rows, master)
+    rows, warnings, uncosted, zero_sold = normalize(raw_rows, master)
 
     allow = set(B2B_CUSTOMER_TYPES)
     scoped = [r for r in rows if r["customerType"] in allow] if allow else rows
@@ -257,6 +264,11 @@ def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
             "costCoverage": {
                 "withCost": len({r["product"] for r in scoped if r["hasCost"]}),
                 "total": len({r["product"] for r in scoped}),
+                "uncosted": sorted({r["product"] for r in scoped if not r["hasCost"]}),
+                "zeroCostSold": sorted({
+                    r["product"] for r in scoped
+                    if r["hasCost"] and r["unitCost"] == 0 and r["lineSales"] > 0
+                }),
             },
             "costNotice": cost_notice,
             "warnings": warnings,

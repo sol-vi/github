@@ -223,11 +223,16 @@ function initHeader() {
     '※ 売上は明細「小計」（税抜）の合計です。配送料・調整額は含みません。',
     '※ 商品名の表記ゆれは Product_Master / GAS 側で正規化しています。'
   ];
-  notes.push('※ 販売粗利は<b>売上が立っている明細行</b>の「売上 − 原価」です。' +
-    '区分ではなく売上の有無で分けています。区分「サンプル」「協賛」にも売上のある行が実在し、' +
-    '区分で分けるとその売上が粗利計算から漏れるためです。');
-  notes.push('※ 無償提供原価は売上¥0の明細行の原価合計です。販売粗利には含めていません。');
-  notes.push('※ 原価は商品原価＋資材原価（化粧箱・同梱物・ギフト資材）です。配送料は含みません。');
+  notes.push('※ 原価は明細の<b>購入価格 × 発注数</b>です。粗利 = 販売価格 − 購入価格（×発注数）。配送料は含みません。');
+  notes.push('※ 販売粗利・無償提供原価は<b>受注単位</b>で分けています。' +
+    'ギフトセットは売上のみの行で、その原価は同じ受注内の構成品行（売上¥0）に分かれているため、' +
+    '明細行単位で分けると構成品が無償扱いになり粗利率が約10ポイント過大に出ます。');
+  notes.push('※ <b>純粗利 = 販売粗利 − 無償提供原価</b>（全明細の 売上 − 原価 と一致）。' +
+    'サンプル・協賛の原価まで引いた、実際に手元に残る利益です。');
+  notes.push('※ 資材（化粧箱・同梱物・ギフト資材）は販売価格が¥0のため、単体では粗利がマイナスになります。' +
+    'セット販売の原価として同じ受注内で回収されます。');
+  notes.push('※ <b>商品別・カテゴリ別・区分別の粗利率</b>は、この構造上ギフトセットが100%、' +
+    'その構成品がマイナスに振れます。店舗別・顧客種別別・リード種別別は受注単位で閉じるため正確です。');
   (m.warnings || []).forEach(function (w) { notes.push('※ ' + esc(w)); });
   notes.push('※ 読込元 <b>' + esc(m.sheet) + '</b>（' + num(m.sourceRows) + '行 → 対象 ' + num(m.rowCount) + '行 / ' + num(m.orderCount) + '受注）');
   $('footer').innerHTML = notes.join('<br>');
@@ -240,22 +245,35 @@ function renderCostBanner(m) {
   var cov = m.costCoverage || { withCost: 0, total: 0 };
 
   if (!cov.withCost) {
-    slot.innerHTML = '<div class="noticeBox warn"><b>原価が未設定です。</b>' +
-      'Product_Master シートの「原価」列に商品別の標準原価を入力すると、' +
-      '粗利・粗利率・無償提供原価が表示されます。それまでは「原価未設定」と表示します。</div>';
+    slot.innerHTML = '<div class="noticeBox warn"><b>購入価格が読み取れませんでした。</b>' +
+      'RAW_B2B シートに「購入価格」列があるか確認してください。' +
+      'それまで粗利は「原価未設定」と表示します。</div>';
     return;
   }
 
   var parts = [];
-  if (m.costNotice) parts.push('<b>' + esc(m.costNotice) + '</b>');
-  if (cov.withCost < cov.total) {
-    parts.push('原価設定済み <b>' + cov.withCost + ' / ' + cov.total + ' 商品</b>。' +
-      '未設定の商品は原価0として扱うため、粗利は実際より大きく出ます。');
-  } else {
-    parts.push('原価設定済み <b>' + cov.withCost + ' / ' + cov.total + ' 商品</b>（全商品）。');
+  var warn = false;
+
+  if (m.costNotice) { parts.push('<b>' + esc(m.costNotice) + '</b>'); warn = true; }
+
+  parts.push('粗利は明細の<b>購入価格</b>から算出しています（購入価格あり <b>' +
+    cov.withCost + ' / ' + cov.total + ' 商品</b>）。');
+
+  var uncosted = cov.uncosted || [];
+  if (uncosted.length) {
+    warn = true;
+    parts.push('購入価格が空の <b>' + uncosted.length + ' 商品</b>は原価0として集計するため粗利が過大に出ます（' +
+      esc(uncosted.slice(0, 2).join(' / ')) + (uncosted.length > 2 ? ' ほか' : '') + '）。');
   }
 
-  slot.innerHTML = '<div class="noticeBox' + (m.costNotice ? ' warn' : '') + '">' + parts.join(' ') + '</div>';
+  var zeroSold = cov.zeroCostSold || [];
+  if (zeroSold.length) {
+    parts.push('購入価格¥0のまま売上がある <b>' + zeroSold.length + ' 商品</b>のうち、' +
+      'ギフトセットは原価が構成品の明細行に分かれているため合算すれば正しく、' +
+      'それ以外は購入価格マスタの未整備が疑われます。');
+  }
+
+  slot.innerHTML = '<div class="noticeBox' + (warn ? ' warn' : '') + '">' + parts.join(' ') + '</div>';
 }
 
 // ---------------------------------------------------------------------------
@@ -458,19 +476,27 @@ function metrics(rows) {
     .map(function (r) { return daysBetween(r.orderDate, r.shipDate); })
     .filter(function (v) { return v !== null && isFinite(v) && v >= 0; });
 
-  // 販売 / 無償 は区分ではなく「売上が立っているか」で分ける。
-  // 区分「サンプル」「協賛」でも売上のある行が実在するため、
-  // 区分で分けるとその売上が粗利計算から漏れてしまう。
-  var sold = rows.filter(function (r) { return r.lineSales > 0; });
-  var free = rows.filter(function (r) { return r.lineSales <= 0; });
+  // 販売 / 無償 は「受注単位」で分ける。
+  // ギフトセットは売上のみの行、その原価は同じ受注内の構成品行（売上¥0）に
+  // 分かれている。行単位で分けると構成品が無償扱いになり、粗利率が10ポイント
+  // 近く過大に出る。受注単位なら構成品も販売側へ正しく入る。
+  var soldOrders = {};
+  rows.forEach(function (r) {
+    if (r.lineSales > 0) soldOrders[r.orderNo] = true;
+  });
+  var sold = rows.filter(function (r) { return soldOrders[r.orderNo]; });
+  var free = rows.filter(function (r) { return !soldOrders[r.orderNo]; });
 
   var soldSales = sum(sold, function (r) { return r.lineSales; });
   var soldCost = sum(sold, function (r) { return r.lineCost || 0; });
   var freeCost = sum(free, function (r) { return r.lineCost || 0; });
   var costKnown = rows.some(function (r) { return r.hasCost; });
 
+  var totalSales = sum(rows, function (r) { return r.lineSales; });
+  var totalCost = sum(rows, function (r) { return r.lineCost || 0; });
+
   return {
-    sales: sum(rows, function (r) { return r.lineSales; }),
+    sales: totalSales,
     qty: sum(rows, function (r) { return r.qty; }),
     costKnown: costKnown,
     soldSales: soldSales,
@@ -479,6 +505,9 @@ function metrics(rows) {
     grossMargin: (costKnown && soldSales) ? (soldSales - soldCost) / soldSales : null,
     freeCost: costKnown ? freeCost : null,
     freeQty: sum(free, function (r) { return r.qty; }),
+    // 純粗利＝全明細の売上−原価。販売粗利 − 無償提供原価 と必ず一致する。
+    netProfit: costKnown ? totalSales - totalCost : null,
+    netMargin: (costKnown && totalSales) ? (totalSales - totalCost) / totalSales : null,
     orders: orders.length,
     stores: stores,
     repeatRate: orders.length ? repeats / orders.length : 0,
@@ -525,6 +554,8 @@ function renderKpis(rows, prev) {
   $('kpiGross').textContent = m.grossProfit === null ? '原価未設定' : yen(m.grossProfit);
   $('kpiMargin').textContent = m.grossMargin === null ? '原価未設定' : (m.grossMargin * 100).toFixed(1) + '%';
   $('kpiFreeCost').textContent = m.freeCost === null ? '原価未設定' : yen(m.freeCost);
+  $('kpiNet').textContent = m.netProfit === null ? '原価未設定' : yen(m.netProfit);
+  $('kpiNetMargin').textContent = m.netMargin === null ? '原価未設定' : (m.netMargin * 100).toFixed(1) + '%';
   $('kpiOrders').textContent = num(m.orders);
   $('kpiStores').textContent = num(m.stores);
   $('kpiQty').textContent = num(m.qty);
@@ -536,6 +567,8 @@ function renderKpis(rows, prev) {
   setDelta('kpiGrossDelta', m.grossProfit, p && p.grossProfit);
   setDelta('kpiMarginDelta', m.grossMargin, p && p.grossMargin);
   setDelta('kpiFreeCostDelta', m.freeCost, p && p.freeCost, { higherIsBetter: false });
+  setDelta('kpiNetDelta', m.netProfit, p && p.netProfit);
+  setDelta('kpiNetMarginDelta', m.netMargin, p && p.netMargin);
   setDelta('kpiOrdersDelta', m.orders, p && p.orders);
   setDelta('kpiStoresDelta', m.stores, p && p.stores);
   setDelta('kpiQtyDelta', m.qty, p && p.qty);
@@ -551,6 +584,10 @@ function renderKpis(rows, prev) {
 /** 任意の軸でまとめる。 */
 function group(rows, key) {
   var map = new Map();
+  var soldOrders = {};
+  rows.forEach(function (r) {
+    if (r.lineSales > 0) soldOrders[r.orderNo] = true;
+  });
   rows.forEach(function (r) {
     var k = r[key] || '未入力';
     if (!map.has(k)) {
@@ -562,7 +599,7 @@ function group(rows, key) {
     var x = map.get(k);
     x.sales += r.lineSales;
     x.qty += r.qty;
-    if (r.lineSales > 0) { x.soldSales += r.lineSales; x.soldCost += r.lineCost || 0; }
+    if (soldOrders[r.orderNo]) { x.soldSales += r.lineSales; x.soldCost += r.lineCost || 0; }
     else { x.freeCost += r.lineCost || 0; }
     if (r.hasCost) x.costKnown = true;
     x.orders.add(r.orderNo);
@@ -597,7 +634,7 @@ function bandsOf(rows, dim, measure) {
   rows.forEach(function (r) {
     var k = r[dim] || '未入力';
     var v = measure === 'qty' ? r.qty
-      : measure === 'gross' ? (r.lineSales > 0 ? r.lineSales - (r.lineCost || 0) : 0)
+      : measure === 'gross' ? r.lineSales - (r.lineCost || 0)
       : r.lineSales;
     totals.set(k, (totals.get(k) || 0) + v);
   });
@@ -631,6 +668,8 @@ function bucketLabel(key, grain) {
 function series(rows, grain, dim, top) {
   var basis = basisKey();
   var all = bandsOf(rows, dim, state.measure);
+  var soldOrders = {};
+  rows.forEach(function (r) { if (r.lineSales > 0) soldOrders[r.orderNo] = true; });
 
   // 上位N件に畳む。帯が増えすぎるとモノトーンの配色では見分けがつかないため。
   // ただし畳む対象が1件だけなら、帯の数は変わらないのでそのまま出す。
@@ -663,7 +702,7 @@ function series(rows, grain, dim, top) {
     b.orders.add(r.orderNo);
     b.segSales[seg] += r.lineSales;
     b.segQty[seg] += r.qty;
-    if (r.lineSales > 0) {
+    if (soldOrders[r.orderNo]) {
       var g = r.lineSales - (r.lineCost || 0);
       b.gross += g;
       b.segGross[seg] += g;
@@ -1073,6 +1112,9 @@ function monthlyMatrix(rows) {
   var cutoffDay = maxDate ? Number(maxDate.slice(8, 10)) : 0;
   var isPartial = !!lastMonth && cutoffDay > 0 && cutoffDay < daysInMonth(lastMonth);
 
+  var soldOrders = {};
+  rows.forEach(function (r) { if (r.lineSales > 0) soldOrders[r.orderNo] = true; });
+
   rows.forEach(function (r) {
     var d = r[basis];
     if (!d) return;
@@ -1098,7 +1140,7 @@ function monthlyMatrix(rows) {
     c.qty += r.qty;
     x.totalSales += r.lineSales;
     x.totalQty += r.qty;
-    if (r.lineSales > 0) {
+    if (soldOrders[r.orderNo]) {
       var g = r.lineSales - (r.lineCost || 0);
       c.gross += g;
       x.totalGross += g;
@@ -1234,6 +1276,8 @@ function renderMonthly(rows) {
 function storeRotation(rows) {
   var basis = basisKey();
   var by = new Map();
+  var soldOrders = {};
+  rows.forEach(function (r) { if (r.lineSales > 0) soldOrders[r.orderNo] = true; });
 
   rows.forEach(function (r) {
     var k = r.customer || '未入力';
@@ -1246,7 +1290,7 @@ function storeRotation(rows) {
     var s = by.get(k);
     s.sales += r.lineSales;
     s.qty += r.qty;
-    if (r.lineSales > 0) { s.soldSales += r.lineSales; s.soldCost += r.lineCost || 0; }
+    if (soldOrders[r.orderNo]) { s.soldSales += r.lineSales; s.soldCost += r.lineCost || 0; }
     if (r.hasCost) s.costKnown = true;
     var pk = r.product || '未入力';
     s.products.set(pk, (s.products.get(pk) || 0) + r.qty);

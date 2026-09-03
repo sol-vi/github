@@ -32,14 +32,9 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 
 ## 粗利について
 
-粗利は `Product_Master` シートの `原価` 列（商品別の標準原価）から算出する。
-原価が未入力のうちは「原価未設定」と表示され、数値は出ない。
+粗利 = `(販売価格 − 購入価格) × 発注数`。原価は `RAW_B2B` の **`購入価格` 列**から
+読むため、原価マスタを別途用意する必要はない。
 
-入力用のひな形:
-
-```bash
-python3 apps/cw-dashboard/tools/build_product_master.py \
-  --csv data/RAW_B2B_sample.csv --out data/Product_Master_template.csv
-```
-
-`data/Product_Master_sample.csv` の原価は動作確認用のサンプル値であり、実原価ではない。
+販売粗利と無償提供原価は**受注単位**で分けている。ギフトセットは売上だけの行で、
+その原価は同じ受注内の構成品行（売上¥0）に分かれているため、明細行単位で分けると
+粗利率が約10ポイント過大に出る。詳細は `docs/cw-dashboard-b2b.md` を参照。

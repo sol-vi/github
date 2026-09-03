@@ -11,7 +11,7 @@
  *  - 集計のうち「フィルター条件に依存するもの」はJavaScript側が担当する
  *
  * 想定シート（docs/cw-dashboard-b2b.md に列定義あり）
- *   RAW_B2B         受注明細ローデータ（必須）
+ *   RAW_B2B         受注明細ローデータ（必須。粗利は「購入価格」列から算出）
  *   Product_Master  商品名の正規化・カテゴリ（任意 / 無ければ規則ベースで補完）
  *   Config          動作設定（任意 / 無ければ既定値）
  */
@@ -52,7 +52,13 @@ var COL = {
   grossTotal: '総額',
   fcyTotal: '合計（FCY）',
   lineSales: '小計',
-  taxIncluded: '税込みの総額'
+  taxIncluded: '税込みの総額',
+  // 2026-09-03 のエクスポートから追加された列。粗利はここから算出する。
+  purchasePrice: '購入価格',
+  sku: 'SKU（在庫保管単位）',
+  itemKind: '商品の種類',
+  prefecture: '都道府県（納品先）',
+  salesRoute: '売上の経路'
 };
 
 /** Config シートが無い場合の既定値。 */
@@ -204,6 +210,12 @@ function normalizeData_(raw, master, config) {
       renamedProducts[productRaw] = resolved.name;
     }
 
+    // 原価は明細の「購入価格」を一次情報とする。
+    // Product_Master の原価は、購入価格が空の商品を補うときだけ使う。
+    var purchaseText = text_(r[COL.purchasePrice]);
+    var unitCost = purchaseText !== '' ? parseNumber_(purchaseText) : resolved.cost;
+    var hasCost = purchaseText !== '' || resolved.hasCost;
+
     var customerTypeRaw = text_(r[COL.customerType]);
     var customerType = customerTypeRaw.replace(/\s+/g, ' ').trim();
     if (customerType !== customerTypeRaw) trimmedTypes++;
@@ -224,9 +236,12 @@ function normalizeData_(raw, master, config) {
       productRaw: productRaw,
       category: resolved.category,
       itemType: resolved.itemType,
-      unitCost: resolved.cost,
-      lineCost: resolved.cost * parseNumber_(r[COL.qty]),
-      hasCost: resolved.hasCost,
+      unitCost: unitCost,
+      lineCost: unitCost * parseNumber_(r[COL.qty]),
+      hasCost: hasCost,
+      sku: text_(r[COL.sku]),
+      itemKind: text_(r[COL.itemKind]),
+      prefecture: text_(r[COL.prefecture]),
       segment: text_(r[COL.segment]) || config.blankLabel,
       qty: parseNumber_(r[COL.qty]),
       unitPrice: parseNumber_(r[COL.unitPrice]),
@@ -243,20 +258,21 @@ function normalizeData_(raw, master, config) {
   if (skippedNoProduct) {
     warnings.push('商品名が空の ' + skippedNoProduct + ' 行を除外しました。');
   }
+  // 原価カバレッジ。「購入価格が空」と「購入価格が¥0」は別物として扱う。
+  //  - 空          → 原価不明。粗利が過大に出る
+  //  - ¥0（セット） → 原価は構成品行に分離されている。合算すれば正しい
   var costed = {};
   var uncosted = {};
+  var zeroCostSold = {};
   out.forEach(function (r) {
     (r.hasCost ? costed : uncosted)[r.product] = true;
+    if (r.hasCost && r.unitCost === 0 && r.lineSales > 0) zeroCostSold[r.product] = true;
   });
   var uncostedNames = Object.keys(uncosted);
-  if (uncostedNames.length) {
-    warnings.push(
-      '原価が未設定の商品が ' + uncostedNames.length + ' 件あります（' +
-      uncostedNames.slice(0, 3).join(' / ') +
-      (uncostedNames.length > 3 ? ' ほか' : '') +
-      '）。粗利はこれらを原価0として計算するため過大に出ます。'
-    );
-  }
+  // 「購入価格が空」「購入価格¥0で売上あり」はスコープ絞り込み後の件数で
+  // 画面上部のバナーに出す。ここで warnings に足すと全データ基準の件数になり、
+  // バナーと数字が食い違うため出さない。
+  var zeroNames = Object.keys(zeroCostSold);
 
   var renamedCount = Object.keys(renamedProducts).length;
   if (renamedCount) {
@@ -274,7 +290,9 @@ function normalizeData_(raw, master, config) {
     warnings: warnings,
     costCoverage: {
       withCost: Object.keys(costed).length,
-      total: Object.keys(costed).length + uncostedNames.length
+      total: Object.keys(costed).length + uncostedNames.length,
+      uncosted: uncostedNames,
+      zeroCostSold: zeroNames
     }
   };
 }
