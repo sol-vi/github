@@ -230,6 +230,9 @@ tfoot td{position:sticky;bottom:0;background:#f7f7f6;border-top:1px solid var(--
 .detailTable td.segQty,.detailTable td.segSales{text-align:right;font-variant-numeric:tabular-nums;border-left:1px solid #ecece9}
 .detailTable td.segQty{font-weight:800}
 .detailTable td.segSales{color:var(--goldDark)}
+/* 月別比較は月×売上/数量の並びで金額の数が多く、ゴールドが続くと読み疲れる。
+   ここだけ本文色に戻す（STORE × PRODUCT のゴールドはそのまま）。 */
+.monthlyTable td.segSales{color:var(--ink)}
 .detailTable td.zero{color:#b4b4b4;font-weight:400}
 
 .empty{color:var(--muted);font-size:12px;padding:30px;text-align:center}
