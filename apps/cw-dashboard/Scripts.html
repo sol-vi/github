@@ -695,7 +695,7 @@ function bandStroke(seg, i, foldLabel) {
 
 function renderTrend(rows) {
   var svg = $('trend');
-  var W = 900, H = 300, pad = { l: 62, r: 52, t: 20, b: 46 };
+  var W = 900, H = 300, pad = { l: 62, r: 52, t: 30, b: 46 };
   var dim = state.trendDim;
   var s = series(rows, state.grain, dim, state.trendTop);
   var data = s.buckets;
@@ -751,6 +751,7 @@ function renderTrend(rows) {
   });
 
   // 区分別 積み上げ棒
+  var stackTotals = [];
   data.forEach(function (d, i) {
     var acc = 0;
     var bucketSeg = segOf(d);
@@ -765,7 +766,11 @@ function renderTrend(rows) {
         '" fill="' + fill + '"' + (stroke ? ' stroke="' + stroke + '"' : '') + '><title>' +
         esc(bucketLabel(d.key, state.grain) + ' ' + seg + '：' + fmtVal(v)) + '</title></rect>');
     });
+    // ラベルは「実際に積み上がった高さ」に付ける。
+    // 合計値をそのまま使うと、描画されない帯（0以下）がある場合にずれる。
+    stackTotals[i] = acc;
   });
+
 
   // 受注件数ライン
   var pts = data.map(function (d, i) { return cx(i) + ',' + yo(d.orderCount); }).join(' ');
@@ -773,6 +778,25 @@ function renderTrend(rows) {
   data.forEach(function (d, i) {
     out.push('<circle cx="' + cx(i) + '" cy="' + yo(d.orderCount) + '" r="3" fill="#fff" stroke="' + C.silver + '" stroke-width="2"><title>' +
       esc(bucketLabel(d.key, state.grain) + ' 受注 ' + d.orderCount + '件') + '</title></circle>');
+  });
+
+  // データラベル（棒の合計）。軸ラベルと同じ丸め方に揃える。
+  // 受注件数の線より後に描き、白いハローを敷いて線の上でも読めるようにする。
+  var labels = stackTotals.map(function (v) { return isQty ? num(v) : compactYen(v); });
+  var widest = Math.max.apply(null, labels.map(function (t) { return t.length; }).concat([1]));
+  var everyLabel = Math.max(1, Math.ceil((widest * 5.8 + 6) / step));
+  var lastShown = -Infinity;
+
+  data.forEach(function (d, i) {
+    var v = stackTotals[i];
+    if (v <= 0) return;
+    var isLast = i === data.length - 1;
+    // 間引きつつ、最後の棒は詰まらない限り必ず出す
+    if (i % everyLabel !== 0 && !(isLast && i - lastShown >= everyLabel)) return;
+    lastShown = i;
+    out.push('<text x="' + cx(i) + '" y="' + (ys(v) - 7) + '" text-anchor="middle" font-size="10" font-weight="700"' +
+      ' fill="' + C.ink + '" stroke="#fff" stroke-width="3" paint-order="stroke"' +
+      ' style="font-variant-numeric:tabular-nums">' + esc(labels[i]) + '</text>');
   });
 
   // X軸ラベル。密なときは間引く（値そのものは棒のtooltipで担保）。
