@@ -7,7 +7,8 @@ HTML / CSS / JavaScript をフロントエンドとする社内Dashboard。
 
 ## 実装済みページ
 
-- **業務店営業**（`?page=b2b`）— 業務用・飲食店 受注売上ダッシュボード
+- **業務店営業**（`?page=b2b`）— 受注売上ダッシュボード
+- **在庫**（`?page=inventory`）— SCM 在庫ダッシュボード
 
 ## クイックスタート（GAS無しで見る）
 
@@ -21,7 +22,17 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 
 ## デプロイ・シート仕様
 
-`docs/cw-dashboard-b2b.md` を参照。
+- 営業：`docs/cw-dashboard-b2b.md`
+- 在庫：`docs/cw-dashboard-inventory.md`
+
+在庫プレビューの生成:
+
+```bash
+python3 apps/cw-dashboard/tools/build_preview.py --page inventory \
+  --inventory data/RAW_Inventory_sample.csv \
+  --csv data/RAW_B2B_sample.csv \
+  --out apps/cw-dashboard/preview/inventory.html
+```
 
 ## 編集時の注意
 

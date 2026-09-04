@@ -1,0 +1,1525 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRAFT WONDER DASHBOARD｜在庫</title>
+<style>
+/* ============================================================
+   CRAFT WONDER DASHBOARD — Master UI
+   ------------------------------------------------------------
+   全ページ共通のデザインシステム。
+   ページごとにこのファイルを書き換えないこと（引き継ぎ書 §22）。
+   ============================================================ */
+
+:root{
+  /* --- Color（引き継ぎ書 §3） --- */
+  --bg:#F5F5F6;
+  --panel:#FFFFFF;
+  --ink:#171717;
+  --muted:#747474;
+  --line:#D8D8D4;
+  --gold:#B39A63;
+  --goldDark:#8D7544;
+  --goldSoft:#F1EDE4;
+  --silver:#A8AAAD;
+  --silverSoft:#EEEEEC;
+
+  /* 状態表現。原色を避け、モノトーン＋ゴールドに馴染む彩度に抑える */
+  --alert:#875D55;
+  --alertSoft:#F3ECEA;
+
+  /* --- Spacing（全ページ統一・引き継ぎ書 §22） --- */
+  --gap:14px;
+  --gapSm:10px;
+  --pad:18px;
+  --radius:10px;
+  --radiusSm:6px;
+
+  --shadow:0 4px 18px rgba(0,0,0,.045);
+  --shadowMenu:0 10px 28px rgba(0,0,0,.10);
+
+  /* --- Typography（引き継ぎ書 §4） --- */
+  --font:Avenir,"Avenir Next","Yu Gothic","游ゴシック",YuGothic,sans-serif;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased}
+.app{max-width:1500px;margin:0 auto;padding:28px}
+
+/* 数値は必ずAvenir・等幅数字で桁を揃える */
+.num{font-family:var(--font);font-variant-numeric:tabular-nums}
+
+/* ============================================================
+   Header / Navigation（§7・§21）
+   ============================================================ */
+.header{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #202020;position:relative}
+.header:after{content:"";position:absolute;left:0;bottom:-1px;width:92px;height:2px;background:var(--gold)}
+.eyebrow{font-size:11px;letter-spacing:.15em;font-weight:700;color:var(--gold);text-transform:uppercase}
+h1{font-size:28px;margin:4px 0 3px;letter-spacing:-.03em}
+.sub{color:var(--muted);font-size:13px}
+.updated{font-size:12px;color:var(--muted);text-align:right;line-height:1.7}
+.updated b{color:var(--ink);font-weight:700}
+
+.nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.navGroup{display:flex;align-items:center;gap:4px;padding-right:12px;margin-right:8px;border-right:1px solid var(--line)}
+.navGroup:last-child{border-right:0;margin-right:0;padding-right:0}
+.navGroup > span{font-size:9px;letter-spacing:.12em;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:2px}
+.navItem{height:30px;display:inline-flex;align-items:center;padding:0 11px;font-size:12px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:var(--radiusSm);text-decoration:none;white-space:nowrap}
+.navItem:hover{background:var(--silverSoft);color:var(--ink)}
+.navItem.active{background:var(--ink);color:#fff;border-color:var(--ink);box-shadow:inset 0 -2px 0 var(--gold);font-weight:700}
+.navItem.soon{opacity:.5;cursor:not-allowed}
+
+/* ============================================================
+   Filter Area（§9・§10）
+   ============================================================ */
+.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:var(--pad);box-shadow:var(--shadow);margin-bottom:16px}
+.field label{font-size:10px;color:var(--muted);display:block;margin:0 0 5px}
+select,input{width:100%;height:40px;border:1px solid var(--line);background:#fff;border-radius:var(--radiusSm);padding:0 10px;color:var(--ink);font-size:13px;font-family:inherit}
+select:focus,input:focus{outline:0;border-color:var(--gold);box-shadow:0 0 0 2px rgba(179,154,99,.10)}
+button{border:0;border-radius:var(--radiusSm);padding:0 14px;height:40px;cursor:pointer;background:var(--ink);color:#fff;font-weight:700;align-self:end;font-family:inherit;font-size:13px}
+button.secondary{background:var(--silverSoft);color:var(--ink);border:1px solid var(--line)}
+button.secondary:hover{background:#e4e4e1}
+
+/* リセットは必ず右下（§9・§23） */
+.filters .resetCell{display:flex;align-items:flex-end;grid-column:3}
+.filters .resetCell button{width:100%}
+
+.multiSelect{position:relative}
+.multiTrigger{width:100%;height:40px;background:#fff!important;color:var(--ink)!important;border:1px solid var(--line)!important;border-radius:var(--radiusSm)!important;padding:0 34px 0 10px!important;text-align:left;font-weight:500!important;position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.multiTrigger:after{content:"⌄";position:absolute;right:11px;top:8px;font-size:18px;color:var(--muted)}
+.multiSelect.open .multiTrigger{border-color:var(--gold)!important;box-shadow:0 0 0 2px rgba(179,154,99,.10)}
+.multiSelect.picked .multiTrigger{background:var(--goldSoft)!important;border-color:#e3d9c2!important}
+.multiMenu{display:none;position:absolute;z-index:30;top:44px;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadowMenu);padding:8px;max-height:280px;overflow:auto}
+.multiSelect.open .multiMenu{display:block}
+.multiMenuHead{display:flex;gap:6px;padding:3px 3px 8px;border-bottom:1px solid var(--silverSoft);margin-bottom:5px;position:sticky;top:-8px;background:#fff}
+.multiMini{height:28px!important;padding:0 8px!important;font-size:10px!important;background:var(--silverSoft)!important;color:var(--ink)!important;border:1px solid var(--line)!important;font-weight:700!important}
+.multiSearch{height:30px!important;font-size:11px!important;flex:1;min-width:0}
+.multiOption{display:flex;align-items:flex-start;gap:8px;padding:7px 6px;border-radius:5px;font-size:12px;line-height:1.35;cursor:pointer}
+.multiOption:hover{background:#f6f6f5}
+.multiOption.on{background:var(--goldSoft)}
+.multiOption input{width:15px;height:15px;flex:0 0 auto;margin-top:1px;accent-color:var(--goldDark)}
+.multiOption .optCount{margin-left:auto;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;padding-left:8px}
+.multiCount{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;margin-left:6px;border-radius:999px;background:var(--goldSoft);color:var(--goldDark);font-size:10px;font-weight:800}
+
+/* ============================================================
+   KPI Cards（§11）
+   ============================================================ */
+.kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--gapSm);margin-bottom:var(--gap)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.kpi{padding:15px 16px;min-width:0}
+.kpi .label{font-size:11px;color:var(--muted)}
+.kpi .value{font-size:21px;font-weight:700;letter-spacing:-.025em;margin:8px 0 4px;white-space:nowrap;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.kpi.accent .value{color:var(--goldDark)}
+.kpi .note{font-size:10px;color:var(--muted);line-height:1.5}
+.kpi .delta{font-size:10px;font-weight:700;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;background:var(--silverSoft);color:var(--muted);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.kpi .delta.up{background:var(--goldSoft);color:var(--goldDark)}
+.kpi .delta.down{background:var(--alertSoft);color:var(--alert)}
+
+/* ============================================================
+   Panel / Section 見出し（§8）
+   ============================================================ */
+.panel{padding:var(--pad)}
+.panelHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap}
+.panelHead h2{font-size:15px;margin:3px 0 0;letter-spacing:-.01em}
+.kicker{font-size:10px;color:var(--muted);letter-spacing:.12em;font-weight:700;text-transform:uppercase}
+.kicker.gold{color:var(--gold)}
+.hint{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.5}
+
+.legend{display:flex;gap:12px;color:var(--muted);font-size:11px;align-items:center;flex-wrap:wrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.dot.gold{background:var(--gold)}
+.dot.goldDark{background:var(--goldDark)}
+.dot.silver{background:var(--silver)}
+.dot.ink{background:var(--ink)}
+.dot.soft{background:var(--goldSoft);border:1px solid #e3d9c2}
+.dot.line{width:14px;height:0;border-top:2px dashed var(--silver);border-radius:0;margin-bottom:3px}
+
+/* 操作UIは各パネル右上（§22） */
+.sortTools{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.sortTools label{font-size:10px;color:var(--muted)}
+.sortTools select{display:block;margin-top:4px;height:34px;min-width:170px;font-size:11px}
+
+/* ============================================================
+   Tabs（§13）
+   ============================================================ */
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{height:34px;padding:0 11px;background:#fff;color:var(--muted);border:1px solid var(--line);font-size:12px;border-radius:5px;font-weight:500}
+.tab:hover{background:var(--silverSoft);color:var(--ink)}
+.tab.active{background:var(--ink);color:#fff;border-color:var(--ink);box-shadow:inset 0 -2px 0 var(--gold);font-weight:700}
+.tab.sm{height:28px;padding:0 9px;font-size:11px}
+
+/* ============================================================
+   Layout grids
+   ============================================================ */
+/* align-items:start — 隣のパネルの高さに引きずられてグラフ下に空白が出るのを防ぐ */
+.grid2{display:grid;grid-template-columns:1.5fr .9fr;gap:var(--gap);margin-bottom:var(--gap);align-items:start}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.gridMain{display:grid;grid-template-columns:1.2fr .8fr;gap:var(--gap);margin-bottom:var(--gap)}
+.stack{margin-bottom:var(--gap)}
+
+/* ============================================================
+   Charts（§12）
+   ============================================================ */
+.chart{width:100%;display:block}
+#trend{height:300px}
+.chartSm{height:230px}
+.chartTools{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.chartTools .tabs{gap:4px}
+.chartTools label{font-size:10px;color:var(--muted)}
+.chartTools select{display:block;margin-top:4px;height:34px;min-width:150px;font-size:11px}
+
+/* ============================================================
+   Operating Signals
+   ============================================================ */
+.insights{display:grid;gap:var(--gapSm)}
+.insight{border:1px solid var(--line);border-radius:var(--radius);padding:13px;background:#fafafa}
+.insight.flag{border-color:#e0d3ce;background:var(--alertSoft)}
+.insight b{display:block;font-size:13px;margin-bottom:5px}
+.insight p{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.insight .metric{font-weight:800;color:var(--goldDark);font-variant-numeric:tabular-nums}
+.insight.flag .metric{color:var(--alert)}
+
+.followList{display:grid;gap:9px;max-height:470px;overflow:auto}
+.follow{padding:13px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+.followTop{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.follow b{font-size:12px}
+.follow .days{font-weight:800;color:var(--goldDark);font-variant-numeric:tabular-nums;white-space:nowrap}
+.follow.hot .days{color:var(--alert)}
+.follow small{display:block;color:var(--muted);font-size:10px;margin-top:5px;line-height:1.6}
+
+/* ============================================================
+   Rank list（Breakdown §14）
+   ============================================================ */
+.rankList{display:grid;gap:9px;max-height:420px;overflow:auto;padding-right:2px}
+.rankRow{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(160px,2fr) 110px;gap:12px;align-items:center;font-size:12px}
+.rankName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rankSub{font-size:10px;color:var(--muted);display:block;margin-top:2px}
+.track{height:10px;background:var(--silverSoft);border-radius:20px;overflow:hidden}
+.fill{height:100%;background:linear-gradient(90deg,var(--goldDark),var(--gold));border-radius:20px}
+.fill.silver{background:var(--silver)}
+.rankValue{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ============================================================
+   Table 共通（§15）
+   ============================================================ */
+.tableWrap{overflow:auto;max-height:520px;border-top:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:760px}
+th{text-align:left;color:var(--muted);font-size:10px;font-weight:700;position:sticky;top:0;background:#fff;padding:10px;border-bottom:1px solid var(--line);z-index:2;white-space:nowrap}
+td{padding:10px;border-bottom:1px solid var(--silverSoft);white-space:nowrap;vertical-align:top}
+tbody tr:hover td{background:#fafaf9}
+td.name{max-width:280px;overflow:hidden;text-overflow:ellipsis}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td.n{font-weight:600}
+tfoot td{position:sticky;bottom:0;background:#f7f7f6;border-top:1px solid var(--line);font-weight:800}
+
+.badge{display:inline-block;border-radius:20px;padding:4px 8px;background:var(--goldSoft);color:var(--goldDark);font-size:10px;font-weight:700;border:1px solid #e5dcc8;white-space:nowrap}
+.badge.silver{background:var(--silverSoft);color:var(--muted);border-color:var(--line)}
+.badge.flag{background:var(--alertSoft);color:var(--alert);border-color:#e0d3ce}
+
+.rowCount{font-size:10px;color:var(--muted);margin-top:8px;text-align:right;font-variant-numeric:tabular-nums}
+
+.productQtyCell{min-width:260px;white-space:normal!important}
+.productChips{display:flex;flex-wrap:wrap;gap:5px}
+.productChip{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border:1px solid #e4dece;background:#faf8f3;border-radius:var(--radiusSm);font-size:10px;line-height:1.3;color:var(--ink)}
+.productChip b{color:var(--goldDark);font-size:11px;font-variant-numeric:tabular-nums}
+.productChip.silver{border-color:var(--line);background:#f8f8f7}
+.productChip.silver b{color:var(--muted)}
+
+/* 店舗 × 商品（§17）— 区分は2段ヘッダーで列展開 */
+.detailTable td.name2{max-width:460px;white-space:normal;line-height:1.45}
+.detailTable thead tr:first-child th{background:#f7f7f7;text-align:center;border-bottom:1px solid #bdbdbd}
+.detailTable thead tr:first-child th[rowspan]{text-align:left;vertical-align:bottom;background:#fff}
+.detailTable thead tr:nth-child(2) th{text-align:right;background:#fbfbfb;top:33px}
+.detailTable .segmentGroup{font-size:11px;letter-spacing:.04em;color:var(--ink);border-left:1px solid var(--line)}
+.detailTable .segmentSub{font-size:10px;color:var(--muted);border-left:1px solid var(--line)}
+.detailTable td.segQty,.detailTable td.segSales{text-align:right;font-variant-numeric:tabular-nums;border-left:1px solid #ecece9}
+.detailTable td.segQty{font-weight:800}
+.detailTable td.segSales{color:var(--goldDark)}
+/* 月別比較は月×売上/数量の並びで金額の数が多く、ゴールドが続くと読み疲れる。
+   ここだけ本文色に戻す（STORE × PRODUCT のゴールドはそのまま）。 */
+.monthlyTable td.segSales{color:var(--ink)}
+.detailTable td.zero{color:#b4b4b4;font-weight:400}
+
+.empty{color:var(--muted);font-size:12px;padding:30px;text-align:center}
+.footer{font-size:11px;color:var(--muted);margin:18px 2px 0;line-height:1.75}
+.footer b{color:var(--ink)}
+
+.loading{padding:60px;text-align:center;color:var(--muted);font-size:13px}
+.errorBox{margin:20px 0;padding:16px 18px;border:1px solid #e0d3ce;background:var(--alertSoft);border-radius:var(--radius);color:var(--alert);font-size:12px;line-height:1.7}
+.errorBox b{display:block;margin-bottom:6px;font-size:13px}
+
+/* 原価の出所を明示するバナー。サンプル原価のまま実績と誤読されるのを防ぐ。 */
+.noticeBox{margin:0 0 var(--gap);padding:12px 16px;border:1px solid #e3d9c2;background:var(--goldSoft);border-radius:var(--radius);color:var(--goldDark);font-size:12px;line-height:1.7}
+.noticeBox b{font-weight:800}
+.noticeBox.warn{border-color:#e0d3ce;background:var(--alertSoft);color:var(--alert)}
+
+/* ============================================================
+   Responsive（§20）— 情報量は削減しない。列は横スクロールで担保する
+   ============================================================ */
+@media(max-width:1280px){
+  .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:1100px){
+  .grid2,.gridMain{grid-template-columns:1fr}
+  .grid3{grid-template-columns:1fr 1fr}
+}
+@media(max-width:820px){
+  .grid3{grid-template-columns:1fr}
+}
+@media(max-width:700px){
+  .app{padding:14px}
+  .header{align-items:flex-start;flex-direction:column}
+  .updated{text-align:left}
+  .filters{grid-template-columns:1fr 1fr;gap:12px}
+  .filters .resetCell{grid-column:2}
+  .kpis{grid-template-columns:1fr 1fr}
+  .rankRow{grid-template-columns:1fr 100px}
+  .rankRow .track{grid-column:1/-1}
+  .nav{gap:6px}
+  .navGroup{border-right:0;padding-right:0;margin-right:0}
+}
+@media(max-width:460px){
+  .filters{grid-template-columns:1fr}
+  .filters .resetCell{grid-column:1}
+  .sortTools{width:100%}
+  .sortTools label,.sortTools select{width:100%;min-width:0}
+}
+</style>
+
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ========================================================
+       Header（§7）
+       ======================================================== -->
+  <header class="header">
+    <div>
+      <div class="eyebrow" id="eyebrow">CRAFT WONDER / SCM INVENTORY</div>
+      <h1 id="pageTitle">在庫ダッシュボード</h1>
+      <div class="sub">Google Spreadsheet → GAS → HTML の社内Dashboard</div>
+    </div>
+    <div class="updated">
+      更新日時 <b id="generatedAt">—</b><br>
+      在庫 <b id="scopeLabel">—</b><br>
+      出庫ペース算定期間 <b id="coverage">—</b>
+    </div>
+  </header>
+
+  <!-- ========================================================
+       Navigation（§21）
+       ======================================================== -->
+  <nav class="nav" aria-label="ダッシュボード切り替え">
+    <div class="navGroup">
+      <span>Overview</span>
+      <a class="navItem soon" href="#" aria-disabled="true">Overview</a>
+    </div>
+    <div class="navGroup">
+      <span>Sales</span>
+      <a class="navItem" href="?page=b2b">業務店営業</a>
+      <a class="navItem soon" href="#" aria-disabled="true">EC売上</a>
+    </div>
+    <div class="navGroup">
+      <span>SCM</span>
+      <a class="navItem active" href="?page=inventory" aria-current="page">在庫</a>
+      <a class="navItem soon" href="#" aria-disabled="true">出荷</a>
+    </div>
+    <div class="navGroup">
+      <span>Marketing</span>
+      <a class="navItem soon" href="#" aria-disabled="true">CRM</a>
+      <a class="navItem soon" href="#" aria-disabled="true">SNS</a>
+      <a class="navItem soon" href="#" aria-disabled="true">広告</a>
+    </div>
+    <div class="navGroup">
+      <span>Report</span>
+      <a class="navItem soon" href="#" aria-disabled="true">Monthly</a>
+    </div>
+  </nav>
+
+  <div id="errorSlot"></div>
+  <div id="loading" class="card loading">データを取得しています…</div>
+
+  <div id="content" hidden>
+
+    <!-- ======================================================
+         Filter Area（§9・§10）
+         在庫はスナップショットなので日付範囲ではなく状態で絞る。
+         ====================================================== -->
+    <section class="filters" aria-label="絞り込み条件">
+      <div class="field">
+        <label>品目区分</label>
+        <div class="multiSelect" id="itemTypeMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">品目区分：すべて</button>
+          <div class="multiMenu" id="itemTypeMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>商品カテゴリ</label>
+        <div class="multiSelect" id="categoryMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">カテゴリ：すべて</button>
+          <div class="multiMenu" id="categoryMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>商品</label>
+        <div class="multiSelect" id="productMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">商品：すべて</button>
+          <div class="multiMenu" id="productMenu"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>在庫ステータス</label>
+        <div class="multiSelect" id="statusMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">ステータス：すべて</button>
+          <div class="multiMenu" id="statusMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>賞味期限</label>
+        <div class="multiSelect" id="expiryMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">期限：すべて</button>
+          <div class="multiMenu" id="expiryMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>仕入先</label>
+        <div class="multiSelect" id="supplierMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">仕入先：すべて</button>
+          <div class="multiMenu" id="supplierMenu"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>拠点</label>
+        <div class="multiSelect" id="siteMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">拠点：すべて</button>
+          <div class="multiMenu" id="siteMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="hideZero">在庫0を含める</label>
+        <select id="hideZero">
+          <option value="0">含める</option>
+          <option value="1">在庫がある行のみ</option>
+        </select>
+      </div>
+      <div class="field resetCell">
+        <button id="reset" type="button" class="secondary">リセット</button>
+      </div>
+    </section>
+
+    <div id="matchBanner"></div>
+
+    <!-- ======================================================
+         KPI Cards（§11）
+         ====================================================== -->
+    <section class="kpis" aria-label="主要指標">
+      <div class="card kpi accent">
+        <div class="label">在庫金額</div>
+        <div class="value" id="kpiValue">—</div>
+        <div class="note">在庫数 × 購入価格・原価ベース</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">在庫数量</div>
+        <div class="value" id="kpiStock">—</div>
+        <div class="note">全ロット合計</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">有効在庫</div>
+        <div class="value" id="kpiFree">—</div>
+        <div class="note">未引当数＝引当可能</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">引当数</div>
+        <div class="value" id="kpiAllocated">—</div>
+        <div class="note">出荷待ちで確保済み</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">対象SKU</div>
+        <div class="value" id="kpiSkus">—</div>
+        <div class="note">ロット数は別途表示</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">平均在庫日数</div>
+        <div class="value" id="kpiDos">—</div>
+        <div class="note">有効在庫 ÷ 日次出庫（加重）</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">期限切れ</div>
+        <div class="value" id="kpiExpired">—</div>
+        <div class="note">賞味期限を過ぎたロット</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">期限接近</div>
+        <div class="value" id="kpiExpiring">—</div>
+        <div class="note" id="kpiExpiringNote">残日数がしきい値以内</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">要補充SKU</div>
+        <div class="value" id="kpiLow">—</div>
+        <div class="note" id="kpiLowNote">在庫日数がしきい値未満</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">過剰在庫SKU</div>
+        <div class="value" id="kpiExcess">—</div>
+        <div class="note" id="kpiExcessNote">在庫日数がしきい値超</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">滞留SKU</div>
+        <div class="value" id="kpiStagnant">—</div>
+        <div class="note" id="kpiStagnantNote">最終出庫からの経過</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">出庫実績なし</div>
+        <div class="value" id="kpiNoOut">—</div>
+        <div class="note">受注データに出庫が無いSKU</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">単価未突合</div>
+        <div class="value" id="kpiUnmatched">—</div>
+        <div class="note">在庫金額・在庫日数を出せない</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">ロット数</div>
+        <div class="value" id="kpiLots">—</div>
+        <div class="note">在庫明細の行数</div>
+      </div>
+    </section>
+
+    <!-- ======================================================
+         Charts（§12）
+         ====================================================== -->
+    <section class="grid3">
+      <div class="card panel">
+        <div class="panelHead">
+          <div>
+            <div class="kicker">VALUE MIX</div>
+            <h2>カテゴリ別 在庫金額</h2>
+          </div>
+        </div>
+        <svg id="valueChart" class="chart chartSm" viewBox="0 0 320 230"
+             preserveAspectRatio="xMidYMid meet" role="img" aria-label="カテゴリ別の在庫金額構成"></svg>
+        <div class="legend" id="valueLegend" style="margin-top:6px"></div>
+      </div>
+
+      <div class="card panel">
+        <div class="panelHead">
+          <div>
+            <div class="kicker">COVERAGE</div>
+            <h2>在庫日数の分布</h2>
+            <div class="hint">SKU数と、その帯が占める在庫金額</div>
+          </div>
+        </div>
+        <svg id="dosChart" class="chart chartSm" viewBox="0 0 360 230"
+             preserveAspectRatio="xMidYMid meet" role="img" aria-label="在庫日数帯ごとのSKU数と在庫金額"></svg>
+        <div class="legend" style="margin-top:6px">
+          <span><i class="dot gold"></i>在庫金額</span>
+          <span><i class="dot ink"></i>SKU数</span>
+        </div>
+      </div>
+
+      <div class="card panel">
+        <div class="panelHead">
+          <div>
+            <div class="kicker">EXPIRY</div>
+            <h2>賞味期限 残日数</h2>
+            <div class="hint">期限が入っているロットのみ</div>
+          </div>
+        </div>
+        <svg id="expiryChart" class="chart chartSm" viewBox="0 0 360 230"
+             preserveAspectRatio="xMidYMid meet" role="img" aria-label="賞味期限の残日数帯ごとのロット数と数量"></svg>
+        <div class="legend" style="margin-top:6px">
+          <span><i class="dot gold"></i>在庫数量</span>
+          <span><i class="dot ink"></i>ロット数</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================
+         Operating Signals
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">OPERATING SIGNAL</div>
+          <h2>在庫の注目点</h2>
+        </div>
+      </div>
+      <div class="insights" id="insights" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"></div>
+    </section>
+
+    <!-- ======================================================
+         Inventory by Product
+         1商品 = 1行。ロットは下の表で展開する。
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">INVENTORY BY PRODUCT</div>
+          <h2>商品別 在庫</h2>
+          <div class="hint">
+            1商品を1行に集約しています。在庫日数 = 有効在庫 ÷ 日次平均出庫で、
+            出庫ペースは受注データの期間から算出しています。
+          </div>
+        </div>
+        <div class="sortTools">
+          <label>並び替え
+            <select id="productSort">
+              <option value="value_desc">在庫金額：高い順</option>
+              <option value="stock_desc">在庫数量：多い順</option>
+              <option value="dos_desc">在庫日数：長い順</option>
+              <option value="dos_asc">在庫日数：短い順</option>
+              <option value="expiry_asc">最短賞味期限：近い順</option>
+              <option value="lastout_asc">最終出庫：古い順</option>
+              <option value="name_asc">商品名：昇順</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="tableWrap" style="max-height:560px">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>カテゴリ</th>
+              <th class="n">在庫数</th>
+              <th class="n">引当</th>
+              <th class="n">有効在庫</th>
+              <th class="n">ロット</th>
+              <th class="n">単価</th>
+              <th class="n">在庫金額</th>
+              <th class="n">日次出庫</th>
+              <th class="n">在庫日数</th>
+              <th>最終入庫</th>
+              <th>最終出庫</th>
+              <th>最短期限</th>
+              <th>状態</th>
+            </tr>
+          </thead>
+          <tbody id="productBody"></tbody>
+          <tfoot id="productFoot"></tfoot>
+        </table>
+      </div>
+      <div class="rowCount" id="productCount"></div>
+    </section>
+
+    <!-- ======================================================
+         Product × Lot
+         1商品 × 1ロット = 1行
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">PRODUCT × LOT</div>
+          <h2>ロット別 在庫明細</h2>
+          <div class="hint">1商品 × 1ロット = 1行。賞味期限のあるロットは残日数を表示します。</div>
+        </div>
+        <div class="sortTools">
+          <label>並び替え
+            <select id="lotSort">
+              <option value="expiry_asc">賞味期限：近い順</option>
+              <option value="stock_desc">在庫数：多い順</option>
+              <option value="arrived_asc">入荷日：古い順</option>
+              <option value="lastout_asc">最終出庫：古い順</option>
+              <option value="product_asc">商品名：昇順</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="tableWrap" style="max-height:560px">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>ロットNo</th>
+              <th>入荷日</th>
+              <th>賞味期限</th>
+              <th class="n">残日数</th>
+              <th class="n">在庫数</th>
+              <th class="n">引当</th>
+              <th class="n">有効在庫</th>
+              <th class="n">在庫金額</th>
+              <th>最終入庫</th>
+              <th>最終出庫</th>
+              <th>仕入先</th>
+            </tr>
+          </thead>
+          <tbody id="lotBody"></tbody>
+          <tfoot id="lotFoot"></tfoot>
+        </table>
+      </div>
+      <div class="rowCount" id="lotCount"></div>
+    </section>
+
+    <div class="footer" id="footer"></div>
+  </div>
+</div>
+
+<script>window.__CW_PREVIEW_DATA__={"meta":{"page":"inventory","title":"在庫ダッシュボード","eyebrow":"CRAFT WONDER / SCM INVENTORY","generatedAt":"2026/09/04 02:34（プレビュー生成時刻）","sheet":"RAW_Inventory_sample.csv（プレビュー / 本番は RAW_Inventory シート）","sourceRows":127,"lotCount":127,"skuCount":40,"matchedSkus":31,"demandDays":92,"demandFrom":"2026-06-01","demandTo":"2026-08-31","thresholds":{"low":14,"healthy":90,"excess":365,"stagnant":90,"expirySoon":90},"warnings":["受注データと突き合わない商品が 9 件あります。在庫数量は集計しますが、単価が取れないため在庫金額と在庫日数は算出できません。"]},"options":{"category":[{"value":"ビール","count":30},{"value":"化粧箱","count":24},{"value":"ウイスキー","count":23},{"value":"その他","count":15},{"value":"ギフト資材","count":13},{"value":"リキュール","count":12},{"value":"同梱物","count":10}],"itemType":[{"value":"完成品","count":80},{"value":"資材","count":47}],"product":[{"value":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","count":19},{"value":"【化粧箱】リキュール用（200ml）〈共通資材〉","count":10},{"value":"【ギフト資材】ショッパー（W210×H300mm）","count":7},{"value":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","count":6},{"value":"【ビール】Barrel Wonder（310ml）","count":5},{"value":"【ビール】Eisbock Wonder（310ml）","count":5},{"value":"【ビール】Non Ale Wonder 0.5%（310ml）","count":5},{"value":"【リキュール】MANGO WONDER（200ml）〈002〉","count":5},{"value":"【ビール】Barrel Wonder（370ml）","count":4},{"value":"【リキュール】STRAWBERRY WONDER（500ml）〈卸専売品〉★古都華なしver","count":4},{"value":"【化粧箱】Rice Whisky Wonder MIZUNARA Aged 14 years 専用箱〈専用資材〉","count":4},{"value":"【同梱物】BW/EW リーフレット（A6）〈2つ折り〉","count":4},{"value":"【同梱物】Rice Whisky Wonder MIZUNARA Aged 14 years リーフレット（A6）〈2つ折り〉","count":4},{"value":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","count":3},{"value":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","count":3},{"value":"【ギフトボックス】ビール 3本用（370ml）","count":3},{"value":"【ギフト資材】ショッパー（長方形：細長）〈ウイスキー用〉","count":3},{"value":"【ビール】Eisbock Wonder（370ml）","count":3},{"value":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 7 years（700ml）","count":2},{"value":"【ビール】Non Ale Wonder 0.00%（370ml）〈Ginger〉","count":2},{"value":"【ビール】Non Ale Wonder 0.00%（370ml）〈Yuzu〉","count":2},{"value":"【ビール】Non Ale Wonder 0.00%（370ml）〈ベーシック〉","count":2},{"value":"【ビール】Yuzu White Wonder （310ml）","count":2},{"value":"【リキュール】STRAWBERRY WONDER（200ml）","count":2},{"value":"【化粧箱】ビールギフトボックス（310ml用）〈2本セット〉","count":2},{"value":"注意書きカード（Non Ale Wonder0.00%　Yuzu）","count":2},{"value":"▲【ノベルティ】STRAWBERRY WONDER ミニボトル","count":1},{"value":"▲【ノベルティ】マンゴー リーフレット","count":1},{"value":"●【ギフトボックス】500ml リキュール用 共通資材","count":1},{"value":"●【ギフトボックス】熨斗（お歳暮）","count":1},{"value":"【ウイスキー】Rice Whisky Wonder BOURBON  Aged 5 years（720ml）","count":1},{"value":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 12 years（700ml）","count":1},{"value":"【ギフト資材】熨斗（176×385mm）〈お中元〉","count":1},{"value":"【ギフト資材】父の日ステッカー（ブルー×ホワイト）","count":1},{"value":"【ギフト資材】父の日メッセージカード（名刺サイズ）","count":1},{"value":"【リキュール】MANGO WONDER（500ml）〈リニューアル版〉","count":1},{"value":"【化粧箱】ウイスキーギフトボックス（700ml）〈共通資材〉","count":1},{"value":"【化粧箱】ビールギフトボックス（310ml用）〈6本セット〉","count":1},{"value":"【同梱物】STRAWBERRY WONDER 飲み方カード（名刺サイズ）","count":1},{"value":"【同梱物】Yuzu White Wonder フライヤー（A6）","count":1}],"supplier":[{"value":"未入力","count":127}],"site":[{"value":"ソネッティーク","count":127}],"stockType":[{"value":"通常品","count":127}]},"demand":{"4595989933075":{"sku":"4595989933075","product":"【ビール】Yuzu White Wonder （310ml）","qty":850.0,"orders":78,"unitCost":372.0,"lastOrder":"2026-08-28","dailyOut":9.23913043478261},"BWAA001_EW_g":{"sku":"BWAA001_EW_g","product":"【BEER】Gift Set （370ml）〈BW / EW 各1本〉","qty":148.0,"orders":65,"unitCost":0.0,"lastOrder":"2026-08-25","dailyOut":1.608695652173913},"4595989933013":{"sku":"4595989933013","product":"【ビール】Barrel Wonder（370ml）","qty":229.0,"orders":122,"unitCost":905.0,"lastOrder":"2026-08-26","dailyOut":2.489130434782609},"4595989933037":{"sku":"4595989933037","product":"【ビール】Eisbock Wonder（370ml）","qty":270.0,"orders":108,"unitCost":1300.0,"lastOrder":"2026-08-25","dailyOut":2.9347826086956523},"giftbox":{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","qty":239.0,"orders":123,"unitCost":565.0,"lastOrder":"2026-08-26","dailyOut":2.597826086956522},"giftbox_P":{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","qty":255.0,"orders":121,"unitCost":165.0,"lastOrder":"2026-08-26","dailyOut":2.7717391304347827},"leaflet":{"sku":"leaflet","product":"【同梱物】BW/EW リーフレット（A6）〈2つ折り〉","qty":245.0,"orders":130,"unitCost":72.0,"lastOrder":"2026-08-26","dailyOut":2.6630434782608696},"4595989933259":{"sku":"4595989933259","product":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 12 years（700ml）","qty":298.0,"orders":77,"unitCost":2100.0,"lastOrder":"2026-08-31","dailyOut":3.239130434782609},"4595989933327":{"sku":"4595989933327","product":"【リキュール】STRAWBERRY WONDER（500ml）〈卸専売品〉★古都華なしver","qty":172.0,"orders":47,"unitCost":1647.0,"lastOrder":"2026-08-26","dailyOut":1.8695652173913044},"4595989933266":{"sku":"4595989933266","product":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 7 years（700ml）","qty":625.0,"orders":214,"unitCost":1970.0,"lastOrder":"2026-08-31","dailyOut":6.793478260869565},"BWAA001_02_g":{"sku":"BWAA001_02_g","product":"【BEER】〈ギフトセット〉Barrel   2本（370ml）","qty":15.0,"orders":15,"unitCost":0.0,"lastOrder":"2026-08-26","dailyOut":0.16304347826086957},"4595989933143":{"sku":"4595989933143","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 10 years（720ml）","qty":1.0,"orders":1,"unitCost":1800.0,"lastOrder":"2026-06-02","dailyOut":0.010869565217391304},"MW002_500":{"sku":"MW002_500","product":"【リキュール】MANGO WONDER（500ml）〈002〉","qty":2.0,"orders":1,"unitCost":5863.0,"lastOrder":"2026-06-03","dailyOut":0.021739130434782608},"SW200":{"sku":"SW200","product":"【LIQUEUR】〈ギフトセット〉STRAWBERRY（200ml）","qty":13.0,"orders":7,"unitCost":0.0,"lastOrder":"2026-08-03","dailyOut":0.14130434782608695},"4595989933129":{"sku":"4595989933129","product":"【リキュール】STRAWBERRY WONDER（200ml）","qty":95.0,"orders":10,"unitCost":1183.0,"lastOrder":"2026-08-03","dailyOut":1.0326086956521738},"LQR-G2-250801":{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","qty":25.0,"orders":12,"unitCost":560.0,"lastOrder":"2026-08-14","dailyOut":0.2717391304347826},"SW-L-20250801":{"sku":"SW-L-20250801","product":"【同梱物】STRAWBERRY WONDER リーフレット（正方形）〈3つ折り〉","qty":2.0,"orders":1,"unitCost":100.0,"lastOrder":"2026-06-03","dailyOut":0.021739130434782608},"4595989933235":{"sku":"4595989933235","product":"【リキュール】MANGO WONDER（200ml）〈002〉","qty":16.0,"orders":7,"unitCost":2648.0,"lastOrder":"2026-08-14","dailyOut":0.17391304347826086},"4595989933112":{"sku":"4595989933112","product":"【ビール】Barrel Wonder（310ml）","qty":172.0,"orders":25,"unitCost":690.0,"lastOrder":"2026-08-28","dailyOut":1.8695652173913044},"4595989933150":{"sku":"4595989933150","product":"【ウイスキー】Rice Whisky Wonder BOURBON  Aged 5 years（720ml）","qty":12.0,"orders":6,"unitCost":1800.0,"lastOrder":"2026-08-16","dailyOut":0.13043478260869565},"4595989933105":{"sku":"4595989933105","product":"【ビール】Eisbock Wonder（310ml）","qty":124.0,"orders":15,"unitCost":1080.0,"lastOrder":"2026-08-28","dailyOut":1.3478260869565217},"RWWM":{"sku":"RWWM","product":"【WHISKEY】〈ギフトセット〉Rice Whisky MIZUNARA 14年 （720ml）","qty":16.0,"orders":9,"unitCost":0.0,"lastOrder":"2026-08-24","dailyOut":0.17391304347826086},"4595989933068":{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","qty":17.0,"orders":10,"unitCost":11065.0,"lastOrder":"2026-08-24","dailyOut":0.18478260869565216},"RWWMbox":{"sku":"RWWMbox","product":"【化粧箱】Rice Whisky Wonder MIZUNARA Aged 14 years 専用箱〈専用資材〉","qty":17.0,"orders":10,"unitCost":1650.0,"lastOrder":"2026-08-24","dailyOut":0.18478260869565216},"RWWMbox_P":{"sku":"RWWMbox_P","product":"【ギフト資材】ショッパー（長方形：細長）〈ウイスキー用〉","qty":29.0,"orders":12,"unitCost":225.0,"lastOrder":"2026-08-24","dailyOut":0.31521739130434784},"leaflet_w":{"sku":"leaflet_w","product":"【同梱物】Rice Whisky Wonder MIZUNARA Aged 14 years リーフレット（A6）〈2つ折り〉","qty":17.0,"orders":10,"unitCost":79.0,"lastOrder":"2026-08-24","dailyOut":0.18478260869565216},"4595989933204":{"sku":"4595989933204","product":"【ビール】Non Ale Wonder 0.5%（310ml）","qty":500.0,"orders":13,"unitCost":408.0,"lastOrder":"2026-08-26","dailyOut":5.434782608695652},"BEER-G-260201":{"sku":"BEER-G-260201","product":"【化粧箱】ビールギフトボックス（310ml用）〈2本セット〉","qty":60.0,"orders":10,"unitCost":138.0,"lastOrder":"2026-07-16","dailyOut":0.6521739130434783},"FD_C_260601":{"sku":"FD_C_260601","product":"【ギフト資材】父の日メッセージカード（名刺サイズ）","qty":48.0,"orders":40,"unitCost":24.0,"lastOrder":"2026-06-23","dailyOut":0.5217391304347826},"YB_310_g":{"sku":"YB_310_g","product":"●父の日仕様●【BEER】クラフトビール飲み比べ ギフトセット 2本（310ml）〈Barrel Wonder / Yuzu White Wonder 各1本〉","qty":7.0,"orders":6,"unitCost":0.0,"lastOrder":"2026-06-22","dailyOut":0.07608695652173914},"FD_S_260601":{"sku":"FD_S_260601","product":"【ギフト資材】父の日ステッカー（ブルー×ホワイト）","qty":40.0,"orders":39,"unitCost":25.0,"lastOrder":"2026-06-23","dailyOut":0.43478260869565216},"Yuzu_6_set_g":{"sku":"Yuzu_6_set_g","product":"【BEER】〈ギフトセット〉Yuzu 6本（310ml）","qty":5.0,"orders":5,"unitCost":0.0,"lastOrder":"2026-07-05","dailyOut":0.05434782608695652},"BEER-B-250801":{"sku":"BEER-B-250801","product":"【化粧箱】ビールギフトボックス（310ml用）〈6本セット〉","qty":5.0,"orders":5,"unitCost":154.0,"lastOrder":"2026-07-05","dailyOut":0.05434782608695652},"YUZU-L-250501":{"sku":"YUZU-L-250501","product":"【同梱物】Yuzu White Wonder フライヤー（A6）","qty":11.0,"orders":10,"unitCost":22.0,"lastOrder":"2026-07-28","dailyOut":0.11956521739130435},"4595989933310":{"sku":"4595989933310","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈Ginger〉","qty":32.0,"orders":21,"unitCost":225.0,"lastOrder":"2026-08-09","dailyOut":0.34782608695652173},"4595989933303":{"sku":"4595989933303","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈Yuzu〉","qty":32.0,"orders":21,"unitCost":225.0,"lastOrder":"2026-08-09","dailyOut":0.34782608695652173},"EW_02_g":{"sku":"EW_02_g","product":"【BEER】〈ギフトセット〉Eisbock  2本（370ml）","qty":38.0,"orders":6,"unitCost":0.0,"lastOrder":"2026-08-05","dailyOut":0.41304347826086957},"BWAA001_02":{"sku":"BWAA001_02","product":"【BEER】Barrel   2本（370ml）","qty":5.0,"orders":5,"unitCost":0.0,"lastOrder":"2026-08-02","dailyOut":0.05434782608695652},"NONALE_m_3_g":{"sku":"NONALE_m_3_g","product":"【BEER】Non Ale Wonder 飲み比べセット 3本（370ml）〈ギフトセット〉","qty":122.0,"orders":20,"unitCost":841.0,"lastOrder":"2026-08-25","dailyOut":1.326086956521739},"4595989933297":{"sku":"4595989933297","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈ベーシック〉","qty":25.0,"orders":17,"unitCost":225.0,"lastOrder":"2026-08-09","dailyOut":0.2717391304347826},"4595989933228":{"sku":"4595989933228","product":"【リキュール】MANGO WONDER（500ml）〈001〉","qty":12.0,"orders":4,"unitCost":5194.0,"lastOrder":"2026-08-06","dailyOut":0.13043478260869565},"Yuzu_2_set_g":{"sku":"Yuzu_2_set_g","product":"【BEER】〈ギフトセット〉Yuzu 2本（310ml）","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-14","dailyOut":0.010869565217391304},"BWEW_g":{"sku":"BWEW_g","product":"【BEER】After Dinner Craft Beer Gift Set （370ml）〈Barrel Wonder Amber Ale 001 / Eisbock Wonder 001 各1本〉","qty":33.0,"orders":33,"unitCost":0.0,"lastOrder":"2026-06-23","dailyOut":0.358695652173913},"SW-C-260501":{"sku":"SW-C-260501","product":"【同梱物】STRAWBERRY WONDER 飲み方カード（名刺サイズ）","qty":11.0,"orders":6,"unitCost":6.0,"lastOrder":"2026-08-03","dailyOut":0.11956521739130435},"NONA_310_2_g":{"sku":"NONA_310_2_g","product":"●父の日仕様●【BEER】Non-Ale Wonder 2本（310ml）〈ギフトセット〉","qty":2.0,"orders":2,"unitCost":0.0,"lastOrder":"2026-06-21","dailyOut":0.021739130434782608},"NONA_310_6_g":{"sku":"NONA_310_6_g","product":"●父の日仕様●【BEER】Non-Ale Wonder 6本（310ml）〈ギフトセット〉","qty":2.0,"orders":2,"unitCost":0.0,"lastOrder":"2026-06-18","dailyOut":0.021739130434782608},"Yuzu":{"sku":"Yuzu","product":"【BEER】Yuzu 2本（310ml）","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-06-02","dailyOut":0.010869565217391304},"MW002":{"sku":"MW002","product":"【LIQUEUR】〈ギフトセット〉MANGO 002（200ml）","qty":3.0,"orders":3,"unitCost":0.0,"lastOrder":"2026-08-14","dailyOut":0.03260869565217391},"Yuzu_6_set_s":{"sku":"Yuzu_6_set_s","product":"【BEER】Yuzu White Wonder  6本（310ml）〈お中元〉","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-12","dailyOut":0.010869565217391304},"EW_02":{"sku":"EW_02","product":"【BEER】Eisbock  2本（370ml）","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-13","dailyOut":0.010869565217391304},"Yuzu_12_m":{"sku":"Yuzu_12_m","product":"社販【BEER】Yuzu 12本（310ml）","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-16","dailyOut":0.010869565217391304},"Yuzu_2_m":{"sku":"Yuzu_2_m","product":"社販【BEER】Yuzu 2本（310ml）","qty":2.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-16","dailyOut":0.021739130434782608},"BWAA001_02_m":{"sku":"BWAA001_02_m","product":"社販【BEER】Barrel   2本（370ml）","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-16","dailyOut":0.010869565217391304},"EW_06_m":{"sku":"EW_06_m","product":"社販【BEER】Eisbock  6本（370ml）","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-16","dailyOut":0.010869565217391304},"RWW_7":{"sku":"RWW_7","product":"【Whisky】Rice Whisky Wonder Bourbon Barrel [Aged 7 years]","qty":3.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-18","dailyOut":0.03260869565217391},"SW_500_ws_new":{"sku":"SW_500_ws_new","product":"【卸専売品】STRAWBERRY WONDER 500ml（リニューアル版）","qty":8.0,"orders":2,"unitCost":0.0,"lastOrder":"2026-07-28","dailyOut":0.08695652173913043},"RWWM_fs":{"sku":"RWWM_fs","product":"【WHISKEY】Rice Whisly Wonder MIZUNARA Aged 14 years Limited Edition （720ml）★特別価格","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-22","dailyOut":0.010869565217391304},"BWAA001_EW_g_fs":{"sku":"BWAA001_EW_g_fs","product":"【BEER】After Dinner Craft Beer Gift Set （370ml）〈Barrel Wonder Amber Ale 001 / Eisbock Wonder 001 各1本〉★特別価格","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-29","dailyOut":0.010869565217391304},"4595989933211":{"sku":"4595989933211","product":"【リキュール】MANGO WONDER（200ml）〈001〉","qty":3.0,"orders":2,"unitCost":2376.0,"lastOrder":"2026-07-06","dailyOut":0.03260869565217391},"RWW_B7_g":{"sku":"RWW_B7_g","product":"【WHISKEY】Rice Whisly Wonder BOURBON BARREL Aged 7 years （700ml）〈ギフトセット〉","qty":29.0,"orders":13,"unitCost":0.0,"lastOrder":"2026-08-24","dailyOut":0.31521739130434784},"WHKY-G-260801":{"sku":"WHKY-G-260801","product":"【化粧箱】ウイスキーギフトボックス（700ml）〈共通資材〉","qty":29.0,"orders":13,"unitCost":274.0,"lastOrder":"2026-08-24","dailyOut":0.31521739130434784},"4595989933341":{"sku":"4595989933341","product":"【リキュール】MANGO WONDER（500ml）〈リニューアル版〉","qty":7.0,"orders":3,"unitCost":3850.0,"lastOrder":"2026-08-26","dailyOut":0.07608695652173914},"WS_MANGO":{"sku":"WS_MANGO","product":"【業務用】MANGO WONDER（500ml）","qty":2.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-08-20","dailyOut":0.021739130434782608},"MW002_fs":{"sku":"MW002_fs","product":"【リキュール】MANGO WONDER [Limited] （Keitt Mango）★特別価格★","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-08-20","dailyOut":0.010869565217391304},"Yuzu_2_fs":{"sku":"Yuzu_2_fs","product":"【BEER】Yuzu White Wonder  2本（310ml）★特別価格","qty":1.0,"orders":1,"unitCost":0.0,"lastOrder":"2026-07-28","dailyOut":0.010869565217391304}},"rows":[{"sku":"4595989933013","product":"【ビール】Barrel Wonder（370ml）","warehouseName":"★【ビール】Barrel Wonder　Amber Ale 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":38.0,"allocated":2.0,"free":36.0,"received":0.0,"shipped":12.0,"bestBefore":"2027-05-31","arrivedOn":"2026-06-03","lastIn":"2026-08-24","lastOut":"2026-09-02","unitCost":905.0,"hasCost":true},{"sku":"4595989933013","product":"【ビール】Barrel Wonder（370ml）","warehouseName":"★【ビール】Barrel Wonder　Amber Ale 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-05-31","arrivedOn":"2026-06-26","lastIn":"2026-07-31","lastOut":"","unitCost":905.0,"hasCost":true},{"sku":"4595989933013","product":"【ビール】Barrel Wonder（370ml）","warehouseName":"★【ビール】Barrel Wonder　Amber Ale 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-05-31","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":905.0,"hasCost":true},{"sku":"4595989933013","product":"【ビール】Barrel Wonder（370ml）","warehouseName":"★【ビール】Barrel Wonder　Amber Ale 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":132.0,"allocated":0.0,"free":132.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-06-30","arrivedOn":"2026-06-19","lastIn":"2026-07-31","lastOut":"","unitCost":905.0,"hasCost":true},{"sku":"4595989933037","product":"【ビール】Eisbock Wonder（370ml）","warehouseName":"★【ビール】Eisbock Wonder 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":4.0,"allocated":2.0,"free":2.0,"received":0.0,"shipped":3.0,"bestBefore":"2027-04-30","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"2026-09-02","unitCost":1300.0,"hasCost":true},{"sku":"4595989933037","product":"【ビール】Eisbock Wonder（370ml）","warehouseName":"★【ビール】Eisbock Wonder 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":72.0,"allocated":0.0,"free":72.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-05-31","arrivedOn":"2026-06-03","lastIn":"2026-07-31","lastOut":"","unitCost":1300.0,"hasCost":true},{"sku":"4595989933037","product":"【ビール】Eisbock Wonder（370ml）","warehouseName":"★【ビール】Eisbock Wonder 001【370ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":72.0,"allocated":0.0,"free":72.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-06-30","arrivedOn":"2026-06-19","lastIn":"2026-07-31","lastOut":"","unitCost":1300.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":323.0,"allocated":0.0,"free":323.0,"received":0.0,"shipped":1.0,"bestBefore":"","arrivedOn":"2024-06-21","lastIn":"2024-06-21","lastOut":"2026-08-28","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":30.0,"allocated":0.0,"free":30.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2024-09-11","lastIn":"2024-09-11","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2024-09-12","lastIn":"2024-09-12","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":21.0,"allocated":0.0,"free":21.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2024-11-18","lastIn":"2024-11-18","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":6.0,"allocated":0.0,"free":6.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2024-11-19","lastIn":"2024-11-19","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2024-12-26","lastIn":"2024-12-26","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":3.0,"allocated":0.0,"free":3.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-02-27","lastIn":"2025-02-27","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":3.0,"allocated":0.0,"free":3.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-03-03","lastIn":"2025-03-03","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-03-14","lastIn":"2025-03-14","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":10.0,"allocated":0.0,"free":10.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-03-18","lastIn":"2025-03-18","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-04-16","lastIn":"2025-04-16","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-05-19","lastIn":"2025-05-19","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":3.0,"allocated":0.0,"free":3.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-06-06","lastIn":"2025-06-06","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":5.0,"allocated":0.0,"free":5.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-07-23","lastIn":"2025-07-23","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":700.0,"allocated":0.0,"free":700.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-08-26","lastIn":"2025-08-26","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":7.0,"allocated":0.0,"free":7.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-11-04","lastIn":"2025-12-22","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933068","product":"【ウイスキー】Rice Whisky Wonder MIZUNARA Aged 14 years（720ml）〈数量限定〉","warehouseName":"★【ウイスキー】Rice Whisky Wonder MIZUNARA【14年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":11065.0,"hasCost":true},{"sku":"4595989933075","product":"【ビール】Yuzu White Wonder （310ml）","warehouseName":"★【ビール】Yuzu White Wonder【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":225.0,"allocated":0.0,"free":225.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-08-31","arrivedOn":"2026-08-20","lastIn":"2026-08-20","lastOut":"2026-09-02","unitCost":372.0,"hasCost":true},{"sku":"4595989933075","product":"【ビール】Yuzu White Wonder （310ml）","warehouseName":"★【ビール】Yuzu White Wonder【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"2027-04-30","arrivedOn":"2026-05-26","lastIn":"2026-07-31","lastOut":"","unitCost":372.0,"hasCost":true},{"sku":"4595989933105","product":"【ビール】Eisbock Wonder（310ml）","warehouseName":"★【ビール】Eisbock Wonder 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":205.0,"allocated":0.0,"free":205.0,"received":0.0,"shipped":60.0,"bestBefore":"2026-10-31","arrivedOn":"2025-10-28","lastIn":"2026-08-24","lastOut":"2026-09-02","unitCost":1080.0,"hasCost":true},{"sku":"4595989933105","product":"【ビール】Eisbock Wonder（310ml）","warehouseName":"★【ビール】Eisbock Wonder 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":14.0,"allocated":0.0,"free":14.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-02-04","lastIn":"2026-07-31","lastOut":"","unitCost":1080.0,"hasCost":true},{"sku":"4595989933105","product":"【ビール】Eisbock Wonder（310ml）","warehouseName":"★【ビール】Eisbock Wonder 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-03-17","lastIn":"2026-07-31","lastOut":"","unitCost":1080.0,"hasCost":true},{"sku":"4595989933105","product":"【ビール】Eisbock Wonder（310ml）","warehouseName":"★【ビール】Eisbock Wonder 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":10.0,"allocated":0.0,"free":10.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-05-26","lastIn":"2026-07-31","lastOut":"","unitCost":1080.0,"hasCost":true},{"sku":"4595989933105","product":"【ビール】Eisbock Wonder（310ml）","warehouseName":"★【ビール】Eisbock Wonder 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":4.0,"allocated":0.0,"free":4.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":1080.0,"hasCost":true},{"sku":"4595989933112","product":"【ビール】Barrel Wonder（310ml）","warehouseName":"★【ビール】Barrel Wonder Amber Ale 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":78.0,"allocated":0.0,"free":78.0,"received":0.0,"shipped":60.0,"bestBefore":"2026-10-31","arrivedOn":"2025-10-28","lastIn":"2026-07-31","lastOut":"2026-08-28","unitCost":690.0,"hasCost":true},{"sku":"4595989933112","product":"【ビール】Barrel Wonder（310ml）","warehouseName":"★【ビール】Barrel Wonder Amber Ale 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":10.0,"allocated":0.0,"free":10.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-02-04","lastIn":"2026-07-31","lastOut":"","unitCost":690.0,"hasCost":true},{"sku":"4595989933112","product":"【ビール】Barrel Wonder（310ml）","warehouseName":"★【ビール】Barrel Wonder Amber Ale 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-03-17","lastIn":"2026-07-31","lastOut":"","unitCost":690.0,"hasCost":true},{"sku":"4595989933112","product":"【ビール】Barrel Wonder（310ml）","warehouseName":"★【ビール】Barrel Wonder Amber Ale 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-05-26","lastIn":"2026-07-31","lastOut":"","unitCost":690.0,"hasCost":true},{"sku":"4595989933112","product":"【ビール】Barrel Wonder（310ml）","warehouseName":"★【ビール】Barrel Wonder Amber Ale 001【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":6.0,"allocated":0.0,"free":6.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-10-31","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":690.0,"hasCost":true},{"sku":"4595989933129","product":"【リキュール】STRAWBERRY WONDER（200ml）","warehouseName":"★【リキュール】STRAWBERRY WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":1183.0,"hasCost":true},{"sku":"4595989933129","product":"【リキュール】STRAWBERRY WONDER（200ml）","warehouseName":"★【リキュール】STRAWBERRY WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-09-02","lastIn":"2025-09-02","lastOut":"","unitCost":1183.0,"hasCost":true},{"sku":"4595989933150","product":"【ウイスキー】Rice Whisky Wonder BOURBON  Aged 5 years（720ml）","warehouseName":"★【ウイスキー】Bourbon【5年】","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":16.0,"allocated":0.0,"free":16.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-01-06","lastIn":"2026-01-06","lastOut":"2026-08-17","unitCost":1800.0,"hasCost":true},{"sku":"4595989933204","product":"【ビール】Non Ale Wonder 0.5%（310ml）","warehouseName":"★【ビール】NON ALE WONDER【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":170.0,"allocated":0.0,"free":170.0,"received":0.0,"shipped":168.0,"bestBefore":"2026-08-31","arrivedOn":"2025-08-26","lastIn":"2026-07-31","lastOut":"2026-08-27","unitCost":408.0,"hasCost":true},{"sku":"4595989933204","product":"【ビール】Non Ale Wonder 0.5%（310ml）","warehouseName":"★【ビール】NON ALE WONDER【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-08-31","arrivedOn":"2026-03-17","lastIn":"2026-07-31","lastOut":"","unitCost":408.0,"hasCost":true},{"sku":"4595989933204","product":"【ビール】Non Ale Wonder 0.5%（310ml）","warehouseName":"★【ビール】NON ALE WONDER【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":12.0,"allocated":0.0,"free":12.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-08-31","arrivedOn":"2026-03-19","lastIn":"2026-07-31","lastOut":"","unitCost":408.0,"hasCost":true},{"sku":"4595989933204","product":"【ビール】Non Ale Wonder 0.5%（310ml）","warehouseName":"★【ビール】NON ALE WONDER【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":24.0,"allocated":0.0,"free":24.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-08-31","arrivedOn":"2026-05-26","lastIn":"2026-07-31","lastOut":"","unitCost":408.0,"hasCost":true},{"sku":"4595989933204","product":"【ビール】Non Ale Wonder 0.5%（310ml）","warehouseName":"★【ビール】NON ALE WONDER【310ml】","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"2026-08-31","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":408.0,"hasCost":true},{"sku":"4595989933235","product":"【リキュール】MANGO WONDER（200ml）〈002〉","warehouseName":"★【リキュール】★002★ MANGO WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":5.0,"allocated":0.0,"free":5.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-12-22","lastIn":"2025-12-22","lastOut":"","unitCost":2648.0,"hasCost":true},{"sku":"4595989933235","product":"【リキュール】MANGO WONDER（200ml）〈002〉","warehouseName":"★【リキュール】★002★ MANGO WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":9.0,"allocated":0.0,"free":9.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-02-04","lastIn":"2026-02-04","lastOut":"","unitCost":2648.0,"hasCost":true},{"sku":"4595989933235","product":"【リキュール】MANGO WONDER（200ml）〈002〉","warehouseName":"★【リキュール】★002★ MANGO WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-17","lastIn":"2026-03-17","lastOut":"","unitCost":2648.0,"hasCost":true},{"sku":"4595989933235","product":"【リキュール】MANGO WONDER（200ml）〈002〉","warehouseName":"★【リキュール】★002★ MANGO WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":2648.0,"hasCost":true},{"sku":"4595989933235","product":"【リキュール】MANGO WONDER（200ml）〈002〉","warehouseName":"★【リキュール】★002★ MANGO WONDER【200ml】","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":5.0,"allocated":0.0,"free":5.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":2648.0,"hasCost":true},{"sku":"4595989933259","product":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 12 years（700ml）","warehouseName":"★【ウイスキー】MIZUNARA　12年（700ml）","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":137.0,"allocated":0.0,"free":137.0,"received":0.0,"shipped":36.0,"bestBefore":"","arrivedOn":"2026-04-28","lastIn":"2026-04-28","lastOut":"2026-09-01","unitCost":2100.0,"hasCost":true},{"sku":"4595989933266","product":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 7 years（700ml）","warehouseName":"★【ウイスキー】BOURBON　7年（700ml）","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":259.0,"allocated":2.0,"free":257.0,"received":0.0,"shipped":38.0,"bestBefore":"","arrivedOn":"2026-07-27","lastIn":"2026-07-27","lastOut":"2026-09-02","unitCost":1970.0,"hasCost":true},{"sku":"4595989933266","product":"【ウイスキー】Rice Whisly Wonder MIZUNARA Aged 7 years（700ml）","warehouseName":"★【ウイスキー】BOURBON　7年（700ml）","matched":true,"category":"ウイスキー","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":4.0,"allocated":0.0,"free":4.0,"received":4.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":1970.0,"hasCost":true},{"sku":"4595989933297","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈ベーシック〉","warehouseName":"Non Ale Wonder0.00%：370ml","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":6.0,"allocated":0.0,"free":6.0,"received":6.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":225.0,"hasCost":true},{"sku":"4595989933297","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈ベーシック〉","warehouseName":"Non Ale Wonder0.00%：370ml","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":180.0,"allocated":1.0,"free":179.0,"received":0.0,"shipped":2.0,"bestBefore":"2027-04-30","arrivedOn":"2026-07-06","lastIn":"2026-07-30","lastOut":"2026-09-02","unitCost":225.0,"hasCost":true},{"sku":"4595989933303","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈Yuzu〉","warehouseName":"Non Ale Wonder0.00% Yuzu：370ml","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":6.0,"allocated":0.0,"free":6.0,"received":6.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":225.0,"hasCost":true},{"sku":"4595989933303","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈Yuzu〉","warehouseName":"Non Ale Wonder0.00% Yuzu：370ml","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":173.0,"allocated":1.0,"free":172.0,"received":0.0,"shipped":2.0,"bestBefore":"2027-04-30","arrivedOn":"2026-07-06","lastIn":"2026-07-30","lastOut":"2026-09-02","unitCost":225.0,"hasCost":true},{"sku":"4595989933310","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈Ginger〉","warehouseName":"Non Ale Wonder0.00% Ginger：370ml","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":6.0,"allocated":0.0,"free":6.0,"received":6.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":225.0,"hasCost":true},{"sku":"4595989933310","product":"【ビール】Non Ale Wonder 0.00%（370ml）〈Ginger〉","warehouseName":"Non Ale Wonder0.00% Ginger：370ml","matched":true,"category":"ビール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":173.0,"allocated":1.0,"free":172.0,"received":0.0,"shipped":2.0,"bestBefore":"2027-04-30","arrivedOn":"2026-07-06","lastIn":"2026-07-30","lastOut":"2026-09-02","unitCost":225.0,"hasCost":true},{"sku":"4595989933327","product":"【リキュール】STRAWBERRY WONDER（500ml）〈卸専売品〉★古都華なしver","warehouseName":"【卸専売品】STRAWBERRY WONDER：500ml","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":47.0,"allocated":0.0,"free":47.0,"received":0.0,"shipped":10.0,"bestBefore":"","arrivedOn":"2026-05-07","lastIn":"2026-05-07","lastOut":"2026-09-02","unitCost":1647.0,"hasCost":true},{"sku":"4595989933327","product":"【リキュール】STRAWBERRY WONDER（500ml）〈卸専売品〉★古都華なしver","warehouseName":"【卸専売品】STRAWBERRY WONDER：500ml","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-21","lastIn":"2026-05-21","lastOut":"2026-06-26","unitCost":1647.0,"hasCost":true},{"sku":"4595989933327","product":"【リキュール】STRAWBERRY WONDER（500ml）〈卸専売品〉★古都華なしver","warehouseName":"【卸専売品】STRAWBERRY WONDER：500ml","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":5.0,"allocated":0.0,"free":5.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":1647.0,"hasCost":true},{"sku":"4595989933327","product":"【リキュール】STRAWBERRY WONDER（500ml）〈卸専売品〉★古都華なしver","warehouseName":"【卸専売品】STRAWBERRY WONDER：500ml","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":31.0,"allocated":0.0,"free":31.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-24","lastIn":"2026-08-24","lastOut":"","unitCost":1647.0,"hasCost":true},{"sku":"4595989933341","product":"【リキュール】MANGO WONDER（500ml）〈リニューアル版〉","warehouseName":"【リキュール】MANGO WONDER（500ml）〈リニューアル版〉","matched":true,"category":"リキュール","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":287.0,"allocated":0.0,"free":287.0,"received":0.0,"shipped":3.0,"bestBefore":"","arrivedOn":"2026-08-10","lastIn":"2026-08-10","lastOut":"2026-08-27","unitCost":3850.0,"hasCost":true},{"sku":"BEER-B-250801","product":"【化粧箱】ビールギフトボックス（310ml用）〈6本セット〉","warehouseName":"●【ギフトボックス】Beer 310ml用ギフトボックス ver.1（取手付き）","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":205.0,"allocated":0.0,"free":205.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-08-26","lastIn":"2025-08-26","lastOut":"2026-07-16","unitCost":154.0,"hasCost":true},{"sku":"BEER-G-260201","product":"【化粧箱】ビールギフトボックス（310ml用）〈2本セット〉","warehouseName":"ビール310ml用　2本ギフトボックス","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":107.0,"allocated":0.0,"free":107.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-11","lastIn":"2026-03-11","lastOut":"2026-07-17","unitCost":138.0,"hasCost":true},{"sku":"BEER-G-260201","product":"【化粧箱】ビールギフトボックス（310ml用）〈2本セット〉","warehouseName":"ビール310ml用　2本ギフトボックス","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":15.0,"allocated":0.0,"free":15.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-19","lastIn":"2026-03-19","lastOut":"","unitCost":138.0,"hasCost":true},{"sku":"BEER-G-260501","product":"【ギフトボックス】ビール 3本用（370ml）","warehouseName":"【ギフトボックス】ビール 3本用（370ml）","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1159.0,"allocated":1.0,"free":1158.0,"received":0.0,"shipped":2.0,"bestBefore":"","arrivedOn":"2026-05-15","lastIn":"2026-05-15","lastOut":"2026-09-02","unitCost":0.0,"hasCost":false},{"sku":"BEER-G-260501","product":"【ギフトボックス】ビール 3本用（370ml）","warehouseName":"【ギフトボックス】ビール 3本用（370ml）","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":5.0,"allocated":0.0,"free":5.0,"received":5.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":0.0,"hasCost":false},{"sku":"BEER-G-260501","product":"【ギフトボックス】ビール 3本用（370ml）","warehouseName":"【ギフトボックス】ビール 3本用（370ml）","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":1.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":0.0,"hasCost":false},{"sku":"FD_C_260601","product":"【ギフト資材】父の日メッセージカード（名刺サイズ）","warehouseName":"【ギフト資材】父の日メッセージカード（名刺サイズ）","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":48.0,"allocated":0.0,"free":48.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-03","lastIn":"2026-06-03","lastOut":"2026-06-24","unitCost":24.0,"hasCost":true},{"sku":"FD_S_260601","product":"【ギフト資材】父の日ステッカー（ブルー×ホワイト）","warehouseName":"【ギフト資材】父の日ステッカー（ブルー×ホワイト）","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":70.0,"allocated":0.0,"free":70.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-03","lastIn":"2026-06-03","lastOut":"2026-06-24","unitCost":25.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":494.0,"allocated":0.0,"free":494.0,"received":0.0,"shipped":2.0,"bestBefore":"","arrivedOn":"2025-08-26","lastIn":"2025-08-28","lastOut":"2026-09-01","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":34.0,"allocated":0.0,"free":34.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-09-02","lastIn":"2025-09-02","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":46.0,"allocated":0.0,"free":46.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-02-04","lastIn":"2026-02-04","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-17","lastIn":"2026-03-17","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":9.0,"allocated":0.0,"free":9.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-19","lastIn":"2026-03-19","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":23.0,"allocated":0.0,"free":23.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-31","lastIn":"2026-03-31","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":19.0,"allocated":0.0,"free":19.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":79.0,"allocated":0.0,"free":79.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-08-26","lastIn":"2026-02-19","lastOut":"2026-08-05","unitCost":560.0,"hasCost":true},{"sku":"LQR-G2-250801","product":"【化粧箱】リキュール用（200ml）〈共通資材〉","warehouseName":"●【ギフトボックス】200ml リキュール用 共通資材","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-17","lastIn":"2026-03-17","lastOut":"","unitCost":560.0,"hasCost":true},{"sku":"LQR-G5-250801","product":"●【ギフトボックス】500ml リキュール用 共通資材","warehouseName":"●【ギフトボックス】500ml リキュール用 共通資材","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":977.0,"allocated":0.0,"free":977.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-08-26","lastIn":"2025-08-26","lastOut":"2025-12-22","unitCost":0.0,"hasCost":false},{"sku":"MW-L-20250801","product":"▲【ノベルティ】マンゴー リーフレット","warehouseName":"▲【ノベルティ】マンゴー リーフレット","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":30.0,"allocated":0.0,"free":30.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-08-26","lastIn":"2025-08-26","lastOut":"2026-01-21","unitCost":0.0,"hasCost":false},{"sku":"NONA-C-260501","product":"注意書きカード（Non Ale Wonder0.00%　Yuzu）","warehouseName":"注意書きカード（Non Ale Wonder0.00%　Yuzu）","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1221.0,"allocated":1.0,"free":1220.0,"received":0.0,"shipped":2.0,"bestBefore":"","arrivedOn":"2026-05-15","lastIn":"2026-05-15","lastOut":"2026-09-02","unitCost":0.0,"hasCost":false},{"sku":"NONA-C-260501","product":"注意書きカード（Non Ale Wonder0.00%　Yuzu）","warehouseName":"注意書きカード（Non Ale Wonder0.00%　Yuzu）","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":6.0,"allocated":0.0,"free":6.0,"received":6.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-08-31","lastIn":"2026-08-31","lastOut":"","unitCost":0.0,"hasCost":false},{"sku":"NOSI-S-202607","product":"【ギフト資材】熨斗（176×385mm）〈お中元〉","warehouseName":"【ギフト資材】熨斗（176×385mm）〈お中元〉","matched":false,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":40.0,"allocated":0.0,"free":40.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-30","lastIn":"2026-06-30","lastOut":"2026-07-14","unitCost":0.0,"hasCost":false},{"sku":"NOSI-W-251128","product":"●【ギフトボックス】熨斗（お歳暮）","warehouseName":"●【ギフトボックス】熨斗（お歳暮）","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":12.0,"allocated":0.0,"free":12.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-12-15","lastIn":"2025-12-15","lastOut":"2026-08-05","unitCost":0.0,"hasCost":false},{"sku":"RWWMbox","product":"【化粧箱】Rice Whisky Wonder MIZUNARA Aged 14 years 専用箱〈専用資材〉","warehouseName":"■【化粧箱】ウイスキー 化粧箱","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1233.0,"allocated":0.0,"free":1233.0,"received":0.0,"shipped":1.0,"bestBefore":"","arrivedOn":"2024-06-19","lastIn":"2025-08-28","lastOut":"2026-08-28","unitCost":1650.0,"hasCost":true},{"sku":"RWWMbox","product":"【化粧箱】Rice Whisky Wonder MIZUNARA Aged 14 years 専用箱〈専用資材〉","warehouseName":"■【化粧箱】ウイスキー 化粧箱","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":1650.0,"hasCost":true},{"sku":"RWWMbox","product":"【化粧箱】Rice Whisky Wonder MIZUNARA Aged 14 years 専用箱〈専用資材〉","warehouseName":"■【化粧箱】ウイスキー 化粧箱","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-28","lastOut":"","unitCost":1650.0,"hasCost":true},{"sku":"RWWMbox","product":"【化粧箱】Rice Whisky Wonder MIZUNARA Aged 14 years 専用箱〈専用資材〉","warehouseName":"■【化粧箱】ウイスキー 化粧箱","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":1650.0,"hasCost":true},{"sku":"RWWMbox_P","product":"【ギフト資材】ショッパー（長方形：細長）〈ウイスキー用〉","warehouseName":"▲【ノベルティ】ウイスキー 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":995.0,"allocated":0.0,"free":995.0,"received":0.0,"shipped":1.0,"bestBefore":"","arrivedOn":"2025-08-27","lastIn":"2025-12-19","lastOut":"2026-08-28","unitCost":225.0,"hasCost":true},{"sku":"RWWMbox_P","product":"【ギフト資材】ショッパー（長方形：細長）〈ウイスキー用〉","warehouseName":"▲【ノベルティ】ウイスキー 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":12.0,"allocated":0.0,"free":12.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":225.0,"hasCost":true},{"sku":"RWWMbox_P","product":"【ギフト資材】ショッパー（長方形：細長）〈ウイスキー用〉","warehouseName":"▲【ノベルティ】ウイスキー 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":225.0,"hasCost":true},{"sku":"SW-C-260501","product":"【同梱物】STRAWBERRY WONDER 飲み方カード（名刺サイズ）","warehouseName":"【同梱物】STRAWBERRY WONDER 飲み方カード（名刺サイズ）","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":93.0,"allocated":0.0,"free":93.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-28","lastIn":"2026-05-28","lastOut":"2026-08-04","unitCost":6.0,"hasCost":true},{"sku":"SW-NOV-251201","product":"▲【ノベルティ】STRAWBERRY WONDER ミニボトル","warehouseName":"▲【ノベルティ】STRAWBERRY WONDER ミニボトル","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":16.0,"allocated":0.0,"free":16.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"2026-06-16","unitCost":0.0,"hasCost":false},{"sku":"SW200_giftbox","product":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","warehouseName":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":11.0,"allocated":0.0,"free":11.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"2026-06-24","unitCost":0.0,"hasCost":false},{"sku":"SW200_giftbox","product":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","warehouseName":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-21","lastIn":"2026-05-21","lastOut":"","unitCost":0.0,"hasCost":false},{"sku":"SW200_giftbox","product":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","warehouseName":"●【ギフトボックス】STRAWBERRY WONDER【200ml】","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":3.0,"allocated":0.0,"free":3.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":0.0,"hasCost":false},{"sku":"SW500_giftbox","product":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","warehouseName":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":298.0,"allocated":0.0,"free":298.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-03-14","lastIn":"2025-03-14","lastOut":"2026-04-22","unitCost":0.0,"hasCost":false},{"sku":"SW500_giftbox","product":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","warehouseName":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":12.0,"allocated":0.0,"free":12.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-02-04","lastIn":"2026-02-04","lastOut":"2026-04-10","unitCost":0.0,"hasCost":false},{"sku":"SW500_giftbox","product":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","warehouseName":"●【ギフトボックス】STRAWBERRY WONDER【500ml】","matched":false,"category":"その他","itemType":"完成品","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":9.0,"allocated":0.0,"free":9.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2025-03-14","lastIn":"2026-03-10","lastOut":"2026-03-10","unitCost":0.0,"hasCost":false},{"sku":"WHKY-G-260801","product":"【化粧箱】ウイスキーギフトボックス（700ml）〈共通資材〉","warehouseName":"【化粧箱】ウイスキーギフトボックス（700ml）〈共通資材〉","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":469.0,"allocated":2.0,"free":467.0,"received":0.0,"shipped":3.0,"bestBefore":"","arrivedOn":"2026-08-06","lastIn":"2026-08-10","lastOut":"2026-09-01","unitCost":274.0,"hasCost":true},{"sku":"YUZU-L-250501","product":"【同梱物】Yuzu White Wonder フライヤー（A6）","warehouseName":"▲【ノベルティ】ユズ リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":19.0,"allocated":0.0,"free":19.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-02-04","lastIn":"2026-02-04","lastOut":"2026-08-10","unitCost":22.0,"hasCost":true},{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","warehouseName":"●【ギフトボックス】ビール ギフト用","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":236.0,"allocated":2.0,"free":234.0,"received":0.0,"shipped":9.0,"bestBefore":"","arrivedOn":"2024-05-15","lastIn":"2026-02-27","lastOut":"2026-09-02","unitCost":565.0,"hasCost":true},{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","warehouseName":"●【ギフトボックス】ビール ギフト用","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":24.0,"allocated":0.0,"free":24.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-31","lastIn":"2026-03-31","lastOut":"","unitCost":565.0,"hasCost":true},{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","warehouseName":"●【ギフトボックス】ビール ギフト用","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":565.0,"hasCost":true},{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","warehouseName":"●【ギフトボックス】ビール ギフト用","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":12.0,"allocated":0.0,"free":12.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":565.0,"hasCost":true},{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","warehouseName":"●【ギフトボックス】ビール ギフト用","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-26","lastIn":"2026-06-26","lastOut":"","unitCost":565.0,"hasCost":true},{"sku":"giftbox","product":"【化粧箱】ビールギフトボックス（370ml）〈2本セット〉","warehouseName":"●【ギフトボックス】ビール ギフト用","matched":true,"category":"化粧箱","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":565.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2457.0,"allocated":2.0,"free":2455.0,"received":0.0,"shipped":9.0,"bestBefore":"","arrivedOn":"2025-08-27","lastIn":"2026-03-06","lastOut":"2026-09-02","unitCost":165.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":64.0,"allocated":0.0,"free":64.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-01-22","lastIn":"2026-01-29","lastOut":"2026-04-10","unitCost":165.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":196.0,"allocated":0.0,"free":196.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-02-04","lastIn":"2026-06-26","lastOut":"","unitCost":165.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":120.0,"allocated":0.0,"free":120.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-03-31","lastIn":"2026-04-01","lastOut":"","unitCost":165.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":340.0,"allocated":0.0,"free":340.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-15","lastIn":"2026-05-15","lastOut":"","unitCost":165.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":20.0,"allocated":0.0,"free":20.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-21","lastIn":"2026-05-21","lastOut":"","unitCost":165.0,"hasCost":true},{"sku":"giftbox_P","product":"【ギフト資材】ショッパー（W210×H300mm）","warehouseName":"▲【ノベルティ】ビール 紙袋","matched":true,"category":"ギフト資材","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":92.0,"allocated":0.0,"free":92.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":165.0,"hasCost":true},{"sku":"leaflet","product":"【同梱物】BW/EW リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ビール リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":229.0,"allocated":2.0,"free":227.0,"received":0.0,"shipped":9.0,"bestBefore":"","arrivedOn":"2026-06-30","lastIn":"2026-06-30","lastOut":"2026-09-02","unitCost":72.0,"hasCost":true},{"sku":"leaflet","product":"【同梱物】BW/EW リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ビール リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":8.0,"allocated":0.0,"free":8.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":72.0,"hasCost":true},{"sku":"leaflet","product":"【同梱物】BW/EW リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ビール リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":72.0,"hasCost":true},{"sku":"leaflet","product":"【同梱物】BW/EW リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ビール リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":72.0,"hasCost":true},{"sku":"leaflet_w","product":"【同梱物】Rice Whisky Wonder MIZUNARA Aged 14 years リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ウイスキー リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1260.0,"allocated":0.0,"free":1260.0,"received":0.0,"shipped":1.0,"bestBefore":"","arrivedOn":"2025-08-27","lastIn":"2025-08-28","lastOut":"2026-08-28","unitCost":79.0,"hasCost":true},{"sku":"leaflet_w","product":"【同梱物】Rice Whisky Wonder MIZUNARA Aged 14 years リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ウイスキー リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":1.0,"allocated":0.0,"free":1.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-05-26","lastIn":"2026-05-26","lastOut":"","unitCost":79.0,"hasCost":true},{"sku":"leaflet_w","product":"【同梱物】Rice Whisky Wonder MIZUNARA Aged 14 years リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ウイスキー リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-06-01","lastIn":"2026-06-01","lastOut":"","unitCost":79.0,"hasCost":true},{"sku":"leaflet_w","product":"【同梱物】Rice Whisky Wonder MIZUNARA Aged 14 years リーフレット（A6）〈2つ折り〉","warehouseName":"▲【ノベルティ】ウイスキー リーフレット","matched":true,"category":"同梱物","itemType":"資材","site":"ソネッティーク","supplier":"未入力","stockType":"通常品","lotNo":"未入力","stock":2.0,"allocated":0.0,"free":2.0,"received":0.0,"shipped":0.0,"bestBefore":"","arrivedOn":"2026-07-31","lastIn":"2026-07-31","lastOut":"","unitCost":79.0,"hasCost":true}]};</script>
+<!-- このファイルは自動生成されたプレビューです。編集は Index/Styles/Scripts.html 側で行ってください。 -->
+<script>
+/* ============================================================
+   CRAFT WONDER DASHBOARD — 在庫（SCM）
+   ------------------------------------------------------------
+   データ取得はGAS、集計・描画はここ（引き継ぎ書 §2.5）。
+   Styles.html は営業ページと共有する（§22）。
+   ============================================================ */
+(function () {
+'use strict';
+
+var C = {
+  gold: '#B39A63', goldDark: '#8D7544', goldSoft: '#F1EDE4',
+  silver: '#A8AAAD', silverSoft: '#EEEEEC',
+  ink: '#171717', muted: '#747474', line: '#D8D8D4',
+  alert: '#875D55'
+};
+
+var SERIES = [C.gold, C.ink, C.silver, C.goldDark, '#CBB88C', '#5A5A5A', '#E2D6B8', '#D5D6D7'];
+
+/** 在庫日数の帯。しきい値はサーバ側の Config から受け取って差し替える。 */
+var DOS_BANDS = [
+  { key: 'low',      label: '要補充' },
+  { key: 'healthy',  label: '適正' },
+  { key: 'excess',   label: '過剰' },
+  { key: 'dead',     label: '大幅過剰' },
+  { key: 'noOut',    label: '出庫なし' },
+  { key: 'unknown',  label: '単価未突合' }
+];
+
+var EXPIRY_BANDS = [
+  { key: 'expired', label: '期限切れ' },
+  { key: 'd30',     label: '30日以内' },
+  { key: 'd90',     label: '90日以内' },
+  { key: 'd180',    label: '180日以内' },
+  { key: 'over',    label: '181日以上' },
+  { key: 'none',    label: '期限なし' }
+];
+
+var FILTER_KEYS = ['itemType', 'category', 'product', 'status', 'expiry', 'supplier', 'site'];
+var FILTER_LABELS = {
+  itemType: '品目区分', category: 'カテゴリ', product: '商品',
+  status: 'ステータス', expiry: '期限', supplier: '仕入先', site: '拠点'
+};
+
+var DATA = null;
+var TODAY = null;          // 残日数・滞留日数の基準日（今日）
+var FRESH = null;          // 在庫データの鮮度＝最終入庫日の最大値
+var TH = {};               // しきい値
+var state = { multi: {} };
+FILTER_KEYS.forEach(function (k) { state.multi[k] = new Set(); });
+
+// ---------------------------------------------------------------------------
+// ユーティリティ
+// ---------------------------------------------------------------------------
+
+function $(id) { return document.getElementById(id); }
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function (m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+  });
+}
+function yen(n) { return '¥' + Math.round(n || 0).toLocaleString('ja-JP'); }
+function num(n) { return Math.round(n || 0).toLocaleString('ja-JP'); }
+function compactYen(v) {
+  var a = Math.abs(v);
+  if (a >= 1000000) return '¥' + (v / 1000000).toFixed(1) + 'M';
+  if (a >= 1000) return '¥' + Math.round(v / 1000) + 'k';
+  return '¥' + Math.round(v);
+}
+function dateObj(s) { return s ? new Date(s + 'T00:00:00') : null; }
+function fmtDate(s) {
+  if (!s) return '—';
+  var p = s.split('-');
+  return p[0].slice(2) + '/' + p[1] + '/' + p[2];
+}
+function daysBetween(a, b) {
+  var x = dateObj(a), y = dateObj(b);
+  if (!x || !y) return null;
+  return Math.round((y - x) / 86400000);
+}
+function sum(arr, f) { var s = 0; for (var i = 0; i < arr.length; i++) s += f(arr[i]); return s; }
+function shortName(p) {
+  var s = String(p || '')
+    .replace(/^[★■▲●]+/, '')
+    .replace(/^●[^●]*●/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// 取得
+// ---------------------------------------------------------------------------
+
+function loadData() {
+  if (window.__CW_PREVIEW_DATA__) {
+    setTimeout(function () { onData(window.__CW_PREVIEW_DATA__); }, 0);
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(onData)
+    .withFailureHandler(onError)
+    .getDashboardData({ page: 'inventory' });
+}
+
+function onError(err) {
+  $('loading').hidden = true;
+  $('errorSlot').innerHTML =
+    '<div class="errorBox"><b>データを取得できませんでした</b>' +
+    esc(err && err.message ? err.message : err) +
+    '<br>Spreadsheet に RAW_Inventory シートがあるか、列名が docs/cw-dashboard-inventory.md の定義と' +
+    '一致しているか確認してください。</div>';
+}
+
+function onData(payload) {
+  DATA = payload;
+  TH = payload.meta.thresholds;
+
+  // 残日数・滞留日数は「今日」を基準にする。
+  // 在庫データの最新日を基準にすると、今日すでに期限切れのロットが
+  // 期限内として表示され、現場の判断を誤らせるため。
+  var now = new Date();
+  TODAY = now.getFullYear() + '-' +
+    ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
+    ('0' + now.getDate()).slice(-2);
+
+  // データがどれだけ古いかは別に示す。
+  var stamps = payload.rows
+    .map(function (r) { return r.lastIn || r.arrivedOn; })
+    .filter(Boolean)
+    .sort();
+  FRESH = stamps.length ? stamps[stamps.length - 1] : '';
+
+  enrich();
+  $('loading').hidden = true;
+  $('content').hidden = false;
+  initHeader();
+  initFilters();
+  bindEvents();
+  render();
+}
+
+/** 各ロットに、期限・滞留・金額といった派生値を持たせる。 */
+function enrich() {
+  DATA.rows.forEach(function (r) {
+    r.value = r.hasCost ? r.stock * r.unitCost : 0;
+    r.freeValue = r.hasCost ? r.free * r.unitCost : 0;
+    r.expiryDays = r.bestBefore ? daysBetween(TODAY, r.bestBefore) : null;
+    r.expiryBand = expiryBandOf(r.expiryDays);
+    r.idleDays = r.lastOut ? daysBetween(r.lastOut, TODAY) : null;
+    var d = DATA.demand[r.sku];
+    r.dailyOut = d ? d.dailyOut : 0;
+    r.lastOrder = d ? d.lastOrder : '';
+  });
+}
+
+function expiryBandOf(days) {
+  if (days === null) return 'none';
+  if (days < 0) return 'expired';
+  if (days <= 30) return 'd30';
+  if (days <= 90) return 'd90';
+  if (days <= 180) return 'd180';
+  return 'over';
+}
+
+/** SKU単位の在庫日数から状態を決める。 */
+function statusOf(p) {
+  if (!p.hasCost) return 'unknown';
+  if (!p.dailyOut) return 'noOut';
+  if (p.dos === null) return 'unknown';
+  if (p.dos < TH.low) return 'low';
+  if (p.dos <= TH.healthy) return 'healthy';
+  if (p.dos <= TH.excess) return 'excess';
+  return 'dead';
+}
+
+function statusLabel(key) {
+  for (var i = 0; i < DOS_BANDS.length; i++) {
+    if (DOS_BANDS[i].key === key) return DOS_BANDS[i].label;
+  }
+  return key;
+}
+
+function statusBadge(key) {
+  var cls = (key === 'low' || key === 'dead') ? ' flag'
+    : (key === 'noOut' || key === 'unknown') ? ' silver' : '';
+  return '<span class="badge' + cls + '">' + esc(statusLabel(key)) + '</span>';
+}
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
+
+function initHeader() {
+  var m = DATA.meta;
+  $('eyebrow').textContent = m.eyebrow;
+  $('pageTitle').textContent = m.title;
+  $('generatedAt').textContent = m.generatedAt;
+  var lag = FRESH ? daysBetween(FRESH, TODAY) : null;
+  $('scopeLabel').innerHTML =
+    num(m.lotCount) + 'ロット / ' + num(m.skuCount) + 'SKU' +
+    (FRESH
+      ? '<br><span style="font-weight:400">最終入庫 ' + fmtDate(FRESH) +
+        (lag !== null && lag > 7 ? '（' + lag + '日前のデータ）' : '') + '</span>'
+      : '');
+  $('coverage').textContent =
+    (m.demandFrom || '—') + ' 〜 ' + (m.demandTo || '—') + '（' + m.demandDays + '日）';
+
+  $('kpiExpiringNote').textContent = '残日数 ' + TH.expirySoon + '日以内';
+  $('kpiLowNote').textContent = '在庫日数 ' + TH.low + '日未満';
+  $('kpiExcessNote').textContent = '在庫日数 ' + TH.healthy + '日超';
+  $('kpiStagnantNote').textContent = '最終出庫から ' + TH.stagnant + '日超';
+
+  var notes = [
+    '※ <b>在庫金額 = 在庫数 × 購入価格</b>（原価ベース）。購入価格は受注データ側の値を' +
+    '<b>SKU（在庫保管単位）＝ 在庫側の商品コード</b>で突き合わせて取得しています。' +
+    '商品名は在庫側と受注側で表記が異なるため突合キーには使っていません。',
+    '※ <b>在庫日数 = 有効在庫 ÷ 日次平均出庫</b>。日次平均出庫は受注データ' +
+    '（' + esc(m.demandFrom) + '〜' + esc(m.demandTo) + '・' + m.demandDays + '日）の発注数から算出しています。' +
+    '出庫実績が無いSKUは在庫日数を出さず「出庫なし」と表示します。',
+    '※ <b>有効在庫 = 未引当数</b>。引当済みは出荷待ちで確保されている分です。',
+    '※ 賞味期限の残日数と滞留日数は<b>今日（' + fmtDate(TODAY) + '）</b>を基準に計算しています。' +
+    '在庫データの最終入庫日は ' + fmtDate(FRESH) + ' です' +
+    (FRESH && daysBetween(FRESH, TODAY) > 7
+      ? '（<b>' + daysBetween(FRESH, TODAY) + '日前</b>のエクスポートのため、最新の入出庫が反映されていない可能性があります）'
+      : '') + '。',
+    '※ 在庫金額は<b>単価が突き合った商品のみ</b>の合計です。未突合の商品は数量だけ集計します。'
+  ];
+  (m.warnings || []).forEach(function (w) { notes.push('※ ' + esc(w)); });
+  notes.push('※ 読込元 <b>' + esc(m.sheet) + '</b>（' + num(m.sourceRows) + '行）');
+  $('footer').innerHTML = notes.join('<br>');
+
+  renderMatchBanner(m);
+}
+
+function renderMatchBanner(m) {
+  var slot = $('matchBanner');
+  if (m.matchedSkus >= m.skuCount) {
+    slot.innerHTML = '<div class="noticeBox">在庫の全 <b>' + m.skuCount +
+      ' SKU</b> が受注データと突き合っており、在庫金額・在庫日数を算出できています。</div>';
+    return;
+  }
+  var miss = m.skuCount - m.matchedSkus;
+  slot.innerHTML = '<div class="noticeBox warn">受注データと突き合ったのは <b>' +
+    m.matchedSkus + ' / ' + m.skuCount + ' SKU</b>。' +
+    '残り <b>' + miss + ' SKU</b> は単価が取れないため<b>在庫金額と在庫日数を算出していません</b>' +
+    '（数量は集計しています）。SKUが受注側に存在しない資材・ノベルティが該当します。</div>';
+}
+
+// ---------------------------------------------------------------------------
+// Filter
+// ---------------------------------------------------------------------------
+
+function initFilters() {
+  FILTER_KEYS.forEach(function (key) { buildMulti(key); });
+}
+
+/** 状態・期限はデータから算出する軸なので、候補もここで作る。 */
+function optionsFor(key) {
+  if (key === 'status') {
+    var byStatus = {};
+    productRows(DATA.rows).forEach(function (p) { byStatus[p.status] = (byStatus[p.status] || 0) + 1; });
+    return DOS_BANDS
+      .filter(function (b) { return byStatus[b.key]; })
+      .map(function (b) { return { value: b.label, count: byStatus[b.key] }; });
+  }
+  if (key === 'expiry') {
+    var byBand = {};
+    DATA.rows.forEach(function (r) { byBand[r.expiryBand] = (byBand[r.expiryBand] || 0) + 1; });
+    return EXPIRY_BANDS
+      .filter(function (b) { return byBand[b.key]; })
+      .map(function (b) { return { value: b.label, count: byBand[b.key] }; });
+  }
+  return (DATA.options && DATA.options[key]) || [];
+}
+
+function buildMulti(key) {
+  var menu = $(key + 'Menu');
+  var wrap = $(key + 'Multi');
+  if (!menu || !wrap) return;
+
+  var options = optionsFor(key);
+  var searchable = options.length > 12;
+
+  menu.innerHTML =
+    '<div class="multiMenuHead">' +
+      '<button type="button" class="multiMini" data-action="all">すべて</button>' +
+      '<button type="button" class="multiMini" data-action="clear">解除</button>' +
+      (searchable ? '<input type="search" class="multiSearch" placeholder="絞り込み" aria-label="選択肢を絞り込み">' : '') +
+    '</div>' +
+    options.map(function (o) {
+      return '<label class="multiOption" data-value="' + esc(o.value) + '">' +
+        '<input type="checkbox" value="' + esc(o.value) + '">' +
+        '<span>' + esc(shortName(o.value)) + '</span>' +
+        '<span class="optCount">' + num(o.count) + '</span></label>';
+    }).join('');
+
+  menu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      var set = state.multi[key];
+      if (cb.checked) set.add(cb.value); else set.delete(cb.value);
+      cb.closest('.multiOption').classList.toggle('on', cb.checked);
+      updateMultiLabel(key);
+      render();
+    });
+  });
+
+  menu.querySelectorAll('.multiMini').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var all = btn.getAttribute('data-action') === 'all';
+      state.multi[key] = new Set(all ? options.map(function (o) { return o.value; }) : []);
+      menu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        cb.checked = all;
+        cb.closest('.multiOption').classList.toggle('on', all);
+      });
+      updateMultiLabel(key);
+      render();
+    });
+  });
+
+  var search = menu.querySelector('.multiSearch');
+  if (search) {
+    search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      menu.querySelectorAll('.multiOption').forEach(function (opt) {
+        var v = opt.getAttribute('data-value').toLowerCase();
+        opt.style.display = (!q || v.indexOf(q) >= 0) ? '' : 'none';
+      });
+    });
+    search.addEventListener('click', function (e) { e.stopPropagation(); });
+  }
+
+  var trigger = wrap.querySelector('.multiTrigger');
+  trigger.addEventListener('click', function (e) {
+    e.stopPropagation();
+    document.querySelectorAll('.multiSelect.open').forEach(function (x) {
+      if (x !== wrap) {
+        x.classList.remove('open');
+        x.querySelector('.multiTrigger').setAttribute('aria-expanded', 'false');
+      }
+    });
+    var open = wrap.classList.toggle('open');
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  menu.addEventListener('click', function (e) { e.stopPropagation(); });
+  updateMultiLabel(key);
+}
+
+function updateMultiLabel(key) {
+  var wrap = $(key + 'Multi');
+  if (!wrap) return;
+  var trigger = wrap.querySelector('.multiTrigger');
+  var set = state.multi[key];
+  var total = optionsFor(key).length;
+  var label = FILTER_LABELS[key];
+
+  if (set.size === 0 || set.size === total) {
+    trigger.innerHTML = esc(label) + '：すべて';
+    wrap.classList.remove('picked');
+  } else if (set.size === 1) {
+    trigger.innerHTML = esc(label) + '：' + esc(shortName(Array.from(set)[0]));
+    wrap.classList.add('picked');
+  } else {
+    trigger.innerHTML = esc(label) + '<span class="multiCount">' + set.size + '</span>';
+    wrap.classList.add('picked');
+  }
+}
+
+function resetFilters() {
+  FILTER_KEYS.forEach(function (key) {
+    state.multi[key].clear();
+    var menu = $(key + 'Menu');
+    if (menu) {
+      menu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        cb.checked = false;
+        cb.closest('.multiOption').classList.remove('on');
+      });
+      var s = menu.querySelector('.multiSearch');
+      if (s) { s.value = ''; menu.querySelectorAll('.multiOption').forEach(function (o) { o.style.display = ''; }); }
+    }
+    updateMultiLabel(key);
+  });
+  $('hideZero').value = '0';
+  $('productSort').value = 'value_desc';
+  $('lotSort').value = 'expiry_asc';
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// 絞り込み
+// ---------------------------------------------------------------------------
+
+function expiryLabelOf(band) {
+  for (var i = 0; i < EXPIRY_BANDS.length; i++) {
+    if (EXPIRY_BANDS[i].key === band) return EXPIRY_BANDS[i].label;
+  }
+  return band;
+}
+
+function currentLots() {
+  var hideZero = $('hideZero').value === '1';
+
+  // ステータスはSKU単位で決まるので、先にSKU→状態の対応を作る。
+  var statusBySku = {};
+  productRows(DATA.rows).forEach(function (p) { statusBySku[p.sku] = statusLabel(p.status); });
+
+  return DATA.rows.filter(function (r) {
+    if (hideZero && r.stock <= 0) return false;
+    for (var i = 0; i < FILTER_KEYS.length; i++) {
+      var key = FILTER_KEYS[i];
+      var set = state.multi[key];
+      if (!set.size) continue;
+      var v = key === 'status' ? statusBySku[r.sku]
+        : key === 'expiry' ? expiryLabelOf(r.expiryBand)
+        : r[key];
+      if (!set.has(v)) return false;
+    }
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SKU単位への集約
+// ---------------------------------------------------------------------------
+
+function productRows(lots) {
+  var map = new Map();
+  lots.forEach(function (r) {
+    if (!map.has(r.sku)) {
+      map.set(r.sku, {
+        sku: r.sku, product: r.product, category: r.category, itemType: r.itemType,
+        supplier: r.supplier, hasCost: r.hasCost, unitCost: r.unitCost,
+        dailyOut: r.dailyOut, lastOrder: r.lastOrder,
+        stock: 0, allocated: 0, free: 0, value: 0, lots: 0,
+        nearestExpiry: '', lastIn: '', lastOut: ''
+      });
+    }
+    var p = map.get(r.sku);
+    p.stock += r.stock;
+    p.allocated += r.allocated;
+    p.free += r.free;
+    p.value += r.value;
+    p.lots++;
+    if (r.bestBefore && (!p.nearestExpiry || r.bestBefore < p.nearestExpiry)) p.nearestExpiry = r.bestBefore;
+    if (r.lastIn && r.lastIn > p.lastIn) p.lastIn = r.lastIn;
+    if (r.lastOut && r.lastOut > p.lastOut) p.lastOut = r.lastOut;
+  });
+
+  return Array.from(map.values()).map(function (p) {
+    p.dos = (p.hasCost && p.dailyOut > 0) ? p.free / p.dailyOut : null;
+    p.expiryDays = p.nearestExpiry ? daysBetween(TODAY, p.nearestExpiry) : null;
+    p.idleDays = p.lastOut ? daysBetween(p.lastOut, TODAY) : null;
+    p.status = statusOf(p);
+    return p;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// KPI
+// ---------------------------------------------------------------------------
+
+function renderKpis(lots, products) {
+  $('kpiValue').textContent = yen(sum(lots, function (r) { return r.value; }));
+  $('kpiStock').textContent = num(sum(lots, function (r) { return r.stock; }));
+  $('kpiFree').textContent = num(sum(lots, function (r) { return r.free; }));
+  $('kpiAllocated').textContent = num(sum(lots, function (r) { return r.allocated; }));
+  $('kpiSkus').textContent = num(products.length);
+  $('kpiLots').textContent = num(lots.length);
+
+  // 平均在庫日数は単純平均だと極端値に引きずられるので、
+  // 「有効在庫合計 ÷ 日次出庫合計」の加重平均で出す。
+  var withOut = products.filter(function (p) { return p.dailyOut > 0 && p.hasCost; });
+  var freeSum = sum(withOut, function (p) { return p.free; });
+  var outSum = sum(withOut, function (p) { return p.dailyOut; });
+  $('kpiDos').textContent = outSum > 0 ? num(freeSum / outSum) + '日' : '—';
+
+  $('kpiExpired').textContent = num(lots.filter(function (r) { return r.expiryBand === 'expired'; }).length) + 'ロット';
+  $('kpiExpiring').textContent = num(lots.filter(function (r) {
+    return r.expiryDays !== null && r.expiryDays >= 0 && r.expiryDays <= TH.expirySoon;
+  }).length) + 'ロット';
+
+  $('kpiLow').textContent = num(products.filter(function (p) { return p.status === 'low'; }).length);
+  $('kpiExcess').textContent = num(products.filter(function (p) {
+    return p.status === 'excess' || p.status === 'dead';
+  }).length);
+  $('kpiStagnant').textContent = num(products.filter(function (p) {
+    return p.idleDays !== null && p.idleDays > TH.stagnant;
+  }).length);
+  $('kpiNoOut').textContent = num(products.filter(function (p) { return p.status === 'noOut'; }).length);
+  $('kpiUnmatched').textContent = num(products.filter(function (p) { return !p.hasCost; }).length);
+}
+
+// ---------------------------------------------------------------------------
+// Charts
+// ---------------------------------------------------------------------------
+
+function renderValueChart(lots) {
+  var svg = $('valueChart');
+  var map = new Map();
+  lots.forEach(function (r) {
+    map.set(r.category, (map.get(r.category) || 0) + r.value);
+  });
+  var arr = Array.from(map.entries())
+    .map(function (e) { return { name: e[0], value: e[1] }; })
+    .filter(function (x) { return x.value > 0; })
+    .sort(function (a, b) { return b.value - a.value; });
+  var total = sum(arr, function (x) { return x.value; });
+
+  if (!total) {
+    svg.innerHTML = '<text x="160" y="115" text-anchor="middle" font-size="12" fill="' + C.muted + '">在庫金額を算出できる商品がありません</text>';
+    $('valueLegend').innerHTML = '';
+    return;
+  }
+
+  var cx = 160, cy = 108, rO = 84, rI = 52, angle = -Math.PI / 2;
+  var out = [];
+  arr.forEach(function (x, i) {
+    var frac = x.value / total;
+    var a0 = angle, a1 = angle + frac * Math.PI * 2;
+    angle = a1;
+    var large = (a1 - a0) > Math.PI ? 1 : 0;
+    var p = function (r, a) { return (cx + r * Math.cos(a)).toFixed(2) + ' ' + (cy + r * Math.sin(a)).toFixed(2); };
+    var d = (frac >= 0.9999)
+      ? 'M ' + (cx - rO) + ' ' + cy + ' a ' + rO + ' ' + rO + ' 0 1 0 ' + (rO * 2) + ' 0 a ' + rO + ' ' + rO + ' 0 1 0 ' + (-rO * 2) + ' 0 Z ' +
+        'M ' + (cx - rI) + ' ' + cy + ' a ' + rI + ' ' + rI + ' 0 1 1 ' + (rI * 2) + ' 0 a ' + rI + ' ' + rI + ' 0 1 1 ' + (-rI * 2) + ' 0 Z'
+      : 'M ' + p(rO, a0) + ' A ' + rO + ' ' + rO + ' 0 ' + large + ' 1 ' + p(rO, a1) +
+        ' L ' + p(rI, a1) + ' A ' + rI + ' ' + rI + ' 0 ' + large + ' 0 ' + p(rI, a0) + ' Z';
+    out.push('<path d="' + d + '" fill="' + SERIES[i % SERIES.length] + '" fill-rule="evenodd" stroke="#fff" stroke-width="1.5"><title>' +
+      esc(x.name + '：' + yen(x.value) + '（' + (frac * 100).toFixed(1) + '%）') + '</title></path>');
+  });
+  out.push('<text x="' + cx + '" y="' + (cy - 4) + '" text-anchor="middle" font-size="10" fill="' + C.muted + '">在庫金額 計</text>');
+  out.push('<text x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle" font-size="15" font-weight="700" fill="' + C.ink + '">' + esc(compactYen(total)) + '</text>');
+  svg.innerHTML = out.join('');
+
+  $('valueLegend').innerHTML = arr.map(function (x, i) {
+    return '<span><i class="dot" style="background:' + SERIES[i % SERIES.length] + '"></i>' +
+      esc(x.name) + ' <b class="num">' + (x.value / total * 100).toFixed(1) + '%</b></span>';
+  }).join('');
+}
+
+/** 汎用の2軸縦棒（棒＝金額/数量、点線＝件数）。 */
+function comboChart(svg, bands, W, H) {
+  var pad = { l: 46, r: 34, t: 16, b: 52 };
+  if (!bands.length) {
+    svg.innerHTML = '<text x="' + (W / 2) + '" y="' + (H / 2) + '" text-anchor="middle" font-size="12" fill="' + C.muted + '">対象データがありません</text>';
+    return;
+  }
+  var innerW = W - pad.l - pad.r, innerH = H - pad.t - pad.b;
+  var maxA = Math.max(1, Math.max.apply(null, bands.map(function (b) { return b.amount; })));
+  var maxC = Math.max(1, Math.max.apply(null, bands.map(function (b) { return b.count; })));
+  var step = innerW / bands.length;
+  var barW = Math.max(8, Math.min(30, step * 0.5));
+  var cx = function (i) { return pad.l + step * (i + 0.5); };
+  var ya = function (v) { return pad.t + innerH * (1 - v / maxA); };
+  var yc = function (v) { return pad.t + innerH * (1 - v / maxC); };
+
+  var out = [];
+  [0, 0.5, 1].forEach(function (t) {
+    var y = pad.t + innerH * t;
+    out.push('<line x1="' + pad.l + '" y1="' + y + '" x2="' + (W - pad.r) + '" y2="' + y + '" stroke="' + C.line + '"/>');
+    out.push('<text x="' + (pad.l - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="9" fill="' + C.muted + '">' +
+      esc(bands[0].fmt(maxA * (1 - t))) + '</text>');
+  });
+
+  bands.forEach(function (b, i) {
+    out.push('<rect x="' + (cx(i) - barW / 2) + '" y="' + ya(b.amount) + '" width="' + barW +
+      '" height="' + Math.max(0, pad.t + innerH - ya(b.amount)) + '" fill="' +
+      (b.alert ? C.alert : C.gold) + '"><title>' + esc(b.label + '：' + b.fmt(b.amount)) + '</title></rect>');
+  });
+
+  var pts = bands.map(function (b, i) { return cx(i) + ',' + yc(b.count); }).join(' ');
+  out.push('<polyline points="' + pts + '" fill="none" stroke="' + C.ink + '" stroke-width="2"/>');
+  bands.forEach(function (b, i) {
+    out.push('<circle cx="' + cx(i) + '" cy="' + yc(b.count) + '" r="3" fill="#fff" stroke="' + C.ink + '" stroke-width="2"><title>' +
+      esc(b.label + '：' + num(b.count) + b.countUnit) + '</title></circle>');
+    out.push('<text x="' + cx(i) + '" y="' + (H - 30) + '" text-anchor="end" font-size="9" fill="' + C.muted +
+      '" transform="rotate(-38 ' + cx(i) + ' ' + (H - 30) + ')">' + esc(b.label) + '</text>');
+  });
+  svg.innerHTML = out.join('');
+}
+
+function renderDosChart(products) {
+  var bands = DOS_BANDS.map(function (b) {
+    var hit = products.filter(function (p) { return p.status === b.key; });
+    return {
+      label: b.label,
+      count: hit.length,
+      countUnit: 'SKU',
+      amount: sum(hit, function (p) { return p.value; }),
+      alert: b.key === 'low' || b.key === 'dead',
+      fmt: compactYen
+    };
+  }).filter(function (b) { return b.count > 0; });
+  comboChart($('dosChart'), bands, 360, 230);
+}
+
+function renderExpiryChart(lots) {
+  var bands = EXPIRY_BANDS.filter(function (b) { return b.key !== 'none'; }).map(function (b) {
+    var hit = lots.filter(function (r) { return r.expiryBand === b.key; });
+    return {
+      label: b.label,
+      count: hit.length,
+      countUnit: 'ロット',
+      amount: sum(hit, function (r) { return r.stock; }),
+      alert: b.key === 'expired' || b.key === 'd30',
+      fmt: function (v) { return num(v); }
+    };
+  }).filter(function (b) { return b.count > 0; });
+  comboChart($('expiryChart'), bands, 360, 230);
+}
+
+// ---------------------------------------------------------------------------
+// Operating signals
+// ---------------------------------------------------------------------------
+
+function renderInsights(lots, products) {
+  var items = [];
+
+  var expired = lots.filter(function (r) { return r.expiryBand === 'expired'; });
+  if (expired.length) {
+    items.push({
+      flag: true,
+      title: '賞味期限切れ',
+      body: '<span class="metric">' + expired.length + 'ロット / ' +
+        num(sum(expired, function (r) { return r.stock; })) + '点</span>（' +
+        yen(sum(expired, function (r) { return r.value; })) + '）が期限切れです。廃棄・値引き処理の要否を確認してください。'
+    });
+  }
+
+  var soon = lots.filter(function (r) {
+    return r.expiryDays !== null && r.expiryDays >= 0 && r.expiryDays <= TH.expirySoon;
+  }).sort(function (a, b) { return a.expiryDays - b.expiryDays; });
+  if (soon.length) {
+    items.push({
+      flag: soon[0].expiryDays <= 30,
+      title: '期限接近',
+      body: '<span class="metric">' + soon.length + 'ロット</span>が残り' + TH.expirySoon + '日以内。最短は ' +
+        esc(shortName(soon[0].product)) + ' の<span class="metric">残' + soon[0].expiryDays + '日</span>（' +
+        fmtDate(soon[0].bestBefore) + '）です。'
+    });
+  }
+
+  var low = products.filter(function (p) { return p.status === 'low'; })
+    .sort(function (a, b) { return a.dos - b.dos; });
+  if (low.length) {
+    items.push({
+      flag: true,
+      title: '要補充',
+      body: '在庫日数が' + TH.low + '日未満のSKUが <span class="metric">' + low.length + '件</span>。最短は ' +
+        esc(shortName(low[0].product)) + ' の<span class="metric">' + low[0].dos.toFixed(0) + '日</span>' +
+        '（有効在庫 ' + num(low[0].free) + ' / 日次出庫 ' + low[0].dailyOut.toFixed(1) + '）です。'
+    });
+  }
+
+  var dead = products.filter(function (p) { return p.status === 'dead'; })
+    .sort(function (a, b) { return b.value - a.value; });
+  if (dead.length) {
+    items.push({
+      flag: true,
+      title: '大幅過剰',
+      body: '在庫日数が' + TH.excess + '日超のSKUが <span class="metric">' + dead.length + '件</span>、金額で' +
+        '<span class="metric">' + yen(sum(dead, function (p) { return p.value; })) + '</span>。' +
+        '最大は ' + esc(shortName(dead[0].product)) + '（' + yen(dead[0].value) + ' / ' +
+        (dead[0].dos > 3650 ? '10年超' : dead[0].dos.toFixed(0) + '日') + '）です。'
+    });
+  }
+
+  var noOut = products.filter(function (p) { return p.status === 'noOut'; });
+  if (noOut.length) {
+    items.push({
+      title: '出庫実績なし',
+      body: '受注データの期間内に出庫が無いSKUが <span class="metric">' + noOut.length + '件</span>、' +
+        '金額で ' + yen(sum(noOut, function (p) { return p.value; })) + '。' +
+        '新規投入品か、動いていない在庫かの切り分けが必要です。'
+    });
+  }
+
+  var unmatched = products.filter(function (p) { return !p.hasCost; });
+  if (unmatched.length) {
+    items.push({
+      title: '単価が突き合わない商品',
+      body: '<span class="metric">' + unmatched.length + 'SKU</span>（' +
+        num(sum(unmatched, function (p) { return p.stock; })) + '点）は受注データにSKUが無く、' +
+        '在庫金額・在庫日数を算出していません。資材・ノベルティが中心です。'
+    });
+  }
+
+  if (!items.length) {
+    items.push({ title: '注目点なし', body: '現在の絞り込み条件では、期限・補充・過剰いずれのアラートもありません。' });
+  }
+
+  $('insights').innerHTML = items.map(function (x) {
+    return '<div class="insight' + (x.flag ? ' flag' : '') + '"><b>' + esc(x.title) + '</b><p>' + x.body + '</p></div>';
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Tables
+// ---------------------------------------------------------------------------
+
+function sortProducts(arr) {
+  var mode = $('productSort').value;
+  var copy = arr.slice();
+  var far = function (v) { return v === null ? Infinity : v; };
+  var neg = function (v) { return v === null ? -Infinity : v; };
+  switch (mode) {
+    case 'stock_desc': return copy.sort(function (a, b) { return b.stock - a.stock; });
+    case 'dos_desc': return copy.sort(function (a, b) { return neg(b.dos) - neg(a.dos); });
+    case 'dos_asc': return copy.sort(function (a, b) { return far(a.dos) - far(b.dos); });
+    case 'expiry_asc': return copy.sort(function (a, b) { return far(a.expiryDays) - far(b.expiryDays); });
+    case 'lastout_asc': return copy.sort(function (a, b) {
+      return (b.idleDays === null ? -Infinity : b.idleDays) - (a.idleDays === null ? -Infinity : a.idleDays);
+    });
+    case 'name_asc': return copy.sort(function (a, b) { return a.product.localeCompare(b.product, 'ja'); });
+    default: return copy.sort(function (a, b) { return b.value - a.value || b.stock - a.stock; });
+  }
+}
+
+function renderProducts(products) {
+  var arr = sortProducts(products);
+
+  $('productBody').innerHTML = arr.map(function (p) {
+    var dos = p.dos === null ? '—'
+      : (p.dos > 3650 ? '10年超' : num(p.dos) + '日');
+    var expiry = p.nearestExpiry
+      ? fmtDate(p.nearestExpiry) + (p.expiryDays !== null
+        ? ' <span class="badge' + (p.expiryDays < 0 ? ' flag' : p.expiryDays <= TH.expirySoon ? '' : ' silver') + '">' +
+          (p.expiryDays < 0 ? '期限切れ' : '残' + p.expiryDays + '日') + '</span>'
+        : '')
+      : '—';
+    var lastOut = p.lastOut
+      ? fmtDate(p.lastOut) + (p.idleDays !== null && p.idleDays > TH.stagnant
+        ? ' <span class="badge flag">' + p.idleDays + '日</span>' : '')
+      : '—';
+    return '<tr>' +
+      '<td class="name" title="' + esc(p.product) + '">' + esc(shortName(p.product)) + '</td>' +
+      '<td>' + esc(p.category) + '</td>' +
+      '<td class="n">' + num(p.stock) + '</td>' +
+      '<td class="n">' + num(p.allocated) + '</td>' +
+      '<td class="n">' + num(p.free) + '</td>' +
+      '<td class="n">' + p.lots + '</td>' +
+      '<td class="n">' + (p.hasCost ? yen(p.unitCost) : '—') + '</td>' +
+      '<td class="n">' + (p.hasCost ? yen(p.value) : '—') + '</td>' +
+      '<td class="n">' + (p.dailyOut ? p.dailyOut.toFixed(1) : '—') + '</td>' +
+      '<td class="n">' + dos + '</td>' +
+      '<td>' + fmtDate(p.lastIn) + '</td>' +
+      '<td>' + lastOut + '</td>' +
+      '<td>' + expiry + '</td>' +
+      '<td>' + statusBadge(p.status) + '</td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="14" class="empty">対象データがありません</td></tr>';
+
+  $('productFoot').innerHTML = arr.length
+    ? '<tr><td>合計 ' + num(arr.length) + ' SKU</td><td>—</td>' +
+      '<td class="n">' + num(sum(arr, function (p) { return p.stock; })) + '</td>' +
+      '<td class="n">' + num(sum(arr, function (p) { return p.allocated; })) + '</td>' +
+      '<td class="n">' + num(sum(arr, function (p) { return p.free; })) + '</td>' +
+      '<td class="n">' + num(sum(arr, function (p) { return p.lots; })) + '</td>' +
+      '<td class="n">—</td>' +
+      '<td class="n">' + yen(sum(arr, function (p) { return p.value; })) + '</td>' +
+      '<td class="n">' + sum(arr, function (p) { return p.dailyOut; }).toFixed(1) + '</td>' +
+      '<td class="n">—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>'
+    : '';
+
+  $('productCount').textContent = '全 ' + num(arr.length) + ' SKU を表示（スクロール）';
+}
+
+function sortLots(arr) {
+  var mode = $('lotSort').value;
+  var copy = arr.slice();
+  var far = function (v) { return v === null ? Infinity : v; };
+  switch (mode) {
+    case 'stock_desc': return copy.sort(function (a, b) { return b.stock - a.stock; });
+    case 'arrived_asc': return copy.sort(function (a, b) { return (a.arrivedOn || '9999').localeCompare(b.arrivedOn || '9999'); });
+    case 'lastout_asc': return copy.sort(function (a, b) { return (a.lastOut || '9999').localeCompare(b.lastOut || '9999'); });
+    case 'product_asc': return copy.sort(function (a, b) {
+      return a.product.localeCompare(b.product, 'ja') || (a.arrivedOn || '').localeCompare(b.arrivedOn || '');
+    });
+    default: return copy.sort(function (a, b) { return far(a.expiryDays) - far(b.expiryDays); });
+  }
+}
+
+function renderLots(lots) {
+  var arr = sortLots(lots);
+
+  $('lotBody').innerHTML = arr.map(function (r) {
+    var days = r.expiryDays === null ? '—'
+      : '<span class="badge' + (r.expiryDays < 0 ? ' flag' : r.expiryDays <= TH.expirySoon ? '' : ' silver') + '">' +
+        (r.expiryDays < 0 ? r.expiryDays + '日' : '残' + r.expiryDays + '日') + '</span>';
+    return '<tr>' +
+      '<td class="name" title="' + esc(r.product) + '">' + esc(shortName(r.product)) + '</td>' +
+      '<td>' + esc(r.lotNo) + '</td>' +
+      '<td>' + fmtDate(r.arrivedOn) + '</td>' +
+      '<td>' + fmtDate(r.bestBefore) + '</td>' +
+      '<td class="n">' + days + '</td>' +
+      '<td class="n">' + num(r.stock) + '</td>' +
+      '<td class="n">' + num(r.allocated) + '</td>' +
+      '<td class="n">' + num(r.free) + '</td>' +
+      '<td class="n">' + (r.hasCost ? yen(r.value) : '—') + '</td>' +
+      '<td>' + fmtDate(r.lastIn) + '</td>' +
+      '<td>' + fmtDate(r.lastOut) + '</td>' +
+      '<td>' + esc(r.supplier) + '</td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="12" class="empty">対象データがありません</td></tr>';
+
+  $('lotFoot').innerHTML = arr.length
+    ? '<tr><td>合計 ' + num(arr.length) + ' ロット</td><td>—</td><td>—</td><td>—</td><td class="n">—</td>' +
+      '<td class="n">' + num(sum(arr, function (r) { return r.stock; })) + '</td>' +
+      '<td class="n">' + num(sum(arr, function (r) { return r.allocated; })) + '</td>' +
+      '<td class="n">' + num(sum(arr, function (r) { return r.free; })) + '</td>' +
+      '<td class="n">' + yen(sum(arr, function (r) { return r.value; })) + '</td>' +
+      '<td>—</td><td>—</td><td>—</td></tr>'
+    : '';
+
+  $('lotCount').textContent = '全 ' + num(arr.length) + ' ロットを表示（スクロール）';
+}
+
+// ---------------------------------------------------------------------------
+// Render / events
+// ---------------------------------------------------------------------------
+
+function render() {
+  var lots = currentLots();
+  var products = productRows(lots);
+
+  renderKpis(lots, products);
+  renderValueChart(lots);
+  renderDosChart(products);
+  renderExpiryChart(lots);
+  renderInsights(lots, products);
+  renderProducts(products);
+  renderLots(lots);
+}
+
+function bindEvents() {
+  $('hideZero').addEventListener('change', render);
+  $('productSort').addEventListener('change', function () { renderProducts(productRows(currentLots())); });
+  $('lotSort').addEventListener('change', function () { renderLots(currentLots()); });
+  $('reset').addEventListener('click', resetFilters);
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.multiSelect')) {
+      document.querySelectorAll('.multiSelect.open').forEach(function (x) {
+        x.classList.remove('open');
+        x.querySelector('.multiTrigger').setAttribute('aria-expanded', 'false');
+      });
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.multiSelect.open').forEach(function (x) {
+      x.classList.remove('open');
+      x.querySelector('.multiTrigger').setAttribute('aria-expanded', 'false');
+    });
+  });
+}
+
+loadData();
+
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRAFT WONDER DASHBOARD｜在庫</title>
+<?!= include('Styles'); ?>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ========================================================
+       Header（§7）
+       ======================================================== -->
+  <header class="header">
+    <div>
+      <div class="eyebrow" id="eyebrow">CRAFT WONDER / SCM INVENTORY</div>
+      <h1 id="pageTitle">在庫ダッシュボード</h1>
+      <div class="sub">Google Spreadsheet → GAS → HTML の社内Dashboard</div>
+    </div>
+    <div class="updated">
+      更新日時 <b id="generatedAt">—</b><br>
+      在庫 <b id="scopeLabel">—</b><br>
+      出庫ペース算定期間 <b id="coverage">—</b>
+    </div>
+  </header>
+
+  <!-- ========================================================
+       Navigation（§21）
+       ======================================================== -->
+  <nav class="nav" aria-label="ダッシュボード切り替え">
+    <div class="navGroup">
+      <span>Overview</span>
+      <a class="navItem soon" href="#" aria-disabled="true">Overview</a>
+    </div>
+    <div class="navGroup">
+      <span>Sales</span>
+      <a class="navItem" href="?page=b2b">業務店営業</a>
+      <a class="navItem soon" href="#" aria-disabled="true">EC売上</a>
+    </div>
+    <div class="navGroup">
+      <span>SCM</span>
+      <a class="navItem active" href="?page=inventory" aria-current="page">在庫</a>
+      <a class="navItem soon" href="#" aria-disabled="true">出荷</a>
+    </div>
+    <div class="navGroup">
+      <span>Marketing</span>
+      <a class="navItem soon" href="#" aria-disabled="true">CRM</a>
+      <a class="navItem soon" href="#" aria-disabled="true">SNS</a>
+      <a class="navItem soon" href="#" aria-disabled="true">広告</a>
+    </div>
+    <div class="navGroup">
+      <span>Report</span>
+      <a class="navItem soon" href="#" aria-disabled="true">Monthly</a>
+    </div>
+  </nav>
+
+  <div id="errorSlot"></div>
+  <div id="loading" class="card loading">データを取得しています…</div>
+
+  <div id="content" hidden>
+
+    <!-- ======================================================
+         Filter Area（§9・§10）
+         在庫はスナップショットなので日付範囲ではなく状態で絞る。
+         ====================================================== -->
+    <section class="filters" aria-label="絞り込み条件">
+      <div class="field">
+        <label>品目区分</label>
+        <div class="multiSelect" id="itemTypeMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">品目区分：すべて</button>
+          <div class="multiMenu" id="itemTypeMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>商品カテゴリ</label>
+        <div class="multiSelect" id="categoryMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">カテゴリ：すべて</button>
+          <div class="multiMenu" id="categoryMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>商品</label>
+        <div class="multiSelect" id="productMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">商品：すべて</button>
+          <div class="multiMenu" id="productMenu"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>在庫ステータス</label>
+        <div class="multiSelect" id="statusMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">ステータス：すべて</button>
+          <div class="multiMenu" id="statusMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>賞味期限</label>
+        <div class="multiSelect" id="expiryMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">期限：すべて</button>
+          <div class="multiMenu" id="expiryMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>仕入先</label>
+        <div class="multiSelect" id="supplierMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">仕入先：すべて</button>
+          <div class="multiMenu" id="supplierMenu"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>拠点</label>
+        <div class="multiSelect" id="siteMulti">
+          <button type="button" class="multiTrigger" aria-haspopup="true" aria-expanded="false">拠点：すべて</button>
+          <div class="multiMenu" id="siteMenu"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="hideZero">在庫0を含める</label>
+        <select id="hideZero">
+          <option value="0">含める</option>
+          <option value="1">在庫がある行のみ</option>
+        </select>
+      </div>
+      <div class="field resetCell">
+        <button id="reset" type="button" class="secondary">リセット</button>
+      </div>
+    </section>
+
+    <div id="matchBanner"></div>
+
+    <!-- ======================================================
+         KPI Cards（§11）
+         ====================================================== -->
+    <section class="kpis" aria-label="主要指標">
+      <div class="card kpi accent">
+        <div class="label">在庫金額</div>
+        <div class="value" id="kpiValue">—</div>
+        <div class="note">在庫数 × 購入価格・原価ベース</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">在庫数量</div>
+        <div class="value" id="kpiStock">—</div>
+        <div class="note">全ロット合計</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">有効在庫</div>
+        <div class="value" id="kpiFree">—</div>
+        <div class="note">未引当数＝引当可能</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">引当数</div>
+        <div class="value" id="kpiAllocated">—</div>
+        <div class="note">出荷待ちで確保済み</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">対象SKU</div>
+        <div class="value" id="kpiSkus">—</div>
+        <div class="note">ロット数は別途表示</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">平均在庫日数</div>
+        <div class="value" id="kpiDos">—</div>
+        <div class="note">有効在庫 ÷ 日次出庫（加重）</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">期限切れ</div>
+        <div class="value" id="kpiExpired">—</div>
+        <div class="note">賞味期限を過ぎたロット</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">期限接近</div>
+        <div class="value" id="kpiExpiring">—</div>
+        <div class="note" id="kpiExpiringNote">残日数がしきい値以内</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">要補充SKU</div>
+        <div class="value" id="kpiLow">—</div>
+        <div class="note" id="kpiLowNote">在庫日数がしきい値未満</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">過剰在庫SKU</div>
+        <div class="value" id="kpiExcess">—</div>
+        <div class="note" id="kpiExcessNote">在庫日数がしきい値超</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">滞留SKU</div>
+        <div class="value" id="kpiStagnant">—</div>
+        <div class="note" id="kpiStagnantNote">最終出庫からの経過</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">出庫実績なし</div>
+        <div class="value" id="kpiNoOut">—</div>
+        <div class="note">受注データに出庫が無いSKU</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">単価未突合</div>
+        <div class="value" id="kpiUnmatched">—</div>
+        <div class="note">在庫金額・在庫日数を出せない</div>
+      </div>
+      <div class="card kpi">
+        <div class="label">ロット数</div>
+        <div class="value" id="kpiLots">—</div>
+        <div class="note">在庫明細の行数</div>
+      </div>
+    </section>
+
+    <!-- ======================================================
+         Charts（§12）
+         ====================================================== -->
+    <section class="grid3">
+      <div class="card panel">
+        <div class="panelHead">
+          <div>
+            <div class="kicker">VALUE MIX</div>
+            <h2>カテゴリ別 在庫金額</h2>
+          </div>
+        </div>
+        <svg id="valueChart" class="chart chartSm" viewBox="0 0 320 230"
+             preserveAspectRatio="xMidYMid meet" role="img" aria-label="カテゴリ別の在庫金額構成"></svg>
+        <div class="legend" id="valueLegend" style="margin-top:6px"></div>
+      </div>
+
+      <div class="card panel">
+        <div class="panelHead">
+          <div>
+            <div class="kicker">COVERAGE</div>
+            <h2>在庫日数の分布</h2>
+            <div class="hint">SKU数と、その帯が占める在庫金額</div>
+          </div>
+        </div>
+        <svg id="dosChart" class="chart chartSm" viewBox="0 0 360 230"
+             preserveAspectRatio="xMidYMid meet" role="img" aria-label="在庫日数帯ごとのSKU数と在庫金額"></svg>
+        <div class="legend" style="margin-top:6px">
+          <span><i class="dot gold"></i>在庫金額</span>
+          <span><i class="dot ink"></i>SKU数</span>
+        </div>
+      </div>
+
+      <div class="card panel">
+        <div class="panelHead">
+          <div>
+            <div class="kicker">EXPIRY</div>
+            <h2>賞味期限 残日数</h2>
+            <div class="hint">期限が入っているロットのみ</div>
+          </div>
+        </div>
+        <svg id="expiryChart" class="chart chartSm" viewBox="0 0 360 230"
+             preserveAspectRatio="xMidYMid meet" role="img" aria-label="賞味期限の残日数帯ごとのロット数と数量"></svg>
+        <div class="legend" style="margin-top:6px">
+          <span><i class="dot gold"></i>在庫数量</span>
+          <span><i class="dot ink"></i>ロット数</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================
+         Operating Signals
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">OPERATING SIGNAL</div>
+          <h2>在庫の注目点</h2>
+        </div>
+      </div>
+      <div class="insights" id="insights" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"></div>
+    </section>
+
+    <!-- ======================================================
+         Inventory by Product
+         1商品 = 1行。ロットは下の表で展開する。
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">INVENTORY BY PRODUCT</div>
+          <h2>商品別 在庫</h2>
+          <div class="hint">
+            1商品を1行に集約しています。在庫日数 = 有効在庫 ÷ 日次平均出庫で、
+            出庫ペースは受注データの期間から算出しています。
+          </div>
+        </div>
+        <div class="sortTools">
+          <label>並び替え
+            <select id="productSort">
+              <option value="value_desc">在庫金額：高い順</option>
+              <option value="stock_desc">在庫数量：多い順</option>
+              <option value="dos_desc">在庫日数：長い順</option>
+              <option value="dos_asc">在庫日数：短い順</option>
+              <option value="expiry_asc">最短賞味期限：近い順</option>
+              <option value="lastout_asc">最終出庫：古い順</option>
+              <option value="name_asc">商品名：昇順</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="tableWrap" style="max-height:560px">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>カテゴリ</th>
+              <th class="n">在庫数</th>
+              <th class="n">引当</th>
+              <th class="n">有効在庫</th>
+              <th class="n">ロット</th>
+              <th class="n">単価</th>
+              <th class="n">在庫金額</th>
+              <th class="n">日次出庫</th>
+              <th class="n">在庫日数</th>
+              <th>最終入庫</th>
+              <th>最終出庫</th>
+              <th>最短期限</th>
+              <th>状態</th>
+            </tr>
+          </thead>
+          <tbody id="productBody"></tbody>
+          <tfoot id="productFoot"></tfoot>
+        </table>
+      </div>
+      <div class="rowCount" id="productCount"></div>
+    </section>
+
+    <!-- ======================================================
+         Product × Lot
+         1商品 × 1ロット = 1行
+         ====================================================== -->
+    <section class="card panel stack">
+      <div class="panelHead">
+        <div>
+          <div class="kicker">PRODUCT × LOT</div>
+          <h2>ロット別 在庫明細</h2>
+          <div class="hint">1商品 × 1ロット = 1行。賞味期限のあるロットは残日数を表示します。</div>
+        </div>
+        <div class="sortTools">
+          <label>並び替え
+            <select id="lotSort">
+              <option value="expiry_asc">賞味期限：近い順</option>
+              <option value="stock_desc">在庫数：多い順</option>
+              <option value="arrived_asc">入荷日：古い順</option>
+              <option value="lastout_asc">最終出庫：古い順</option>
+              <option value="product_asc">商品名：昇順</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="tableWrap" style="max-height:560px">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>ロットNo</th>
+              <th>入荷日</th>
+              <th>賞味期限</th>
+              <th class="n">残日数</th>
+              <th class="n">在庫数</th>
+              <th class="n">引当</th>
+              <th class="n">有効在庫</th>
+              <th class="n">在庫金額</th>
+              <th>最終入庫</th>
+              <th>最終出庫</th>
+              <th>仕入先</th>
+            </tr>
+          </thead>
+          <tbody id="lotBody"></tbody>
+          <tfoot id="lotFoot"></tfoot>
+        </table>
+      </div>
+      <div class="rowCount" id="lotCount"></div>
+    </section>
+
+    <div class="footer" id="footer"></div>
+  </div>
+</div>
+
+<?!= include('InventoryScripts'); ?>
+</body>
+</html>

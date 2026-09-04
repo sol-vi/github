@@ -362,20 +362,179 @@ def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
     }
 
 
+# --- 在庫（Code.gs の getInventoryData() の移植） ----------------------------
+
+INVENTORY_THRESHOLDS = {
+    "low": 14,          # 在庫日数がこの日数未満なら要補充
+    "healthy": 90,      # ここまでが適正
+    "excess": 365,      # ここを超えたら大幅過剰
+    "stagnant": 90,     # 最終出庫からこの日数を超えたら滞留
+    "expirySoon": 90,   # 賞味期限の残日数がこの日数以下なら期限接近
+}
+
+INVENTORY_OPTION_KEYS = ["category", "itemType", "product", "supplier", "site", "stockType"]
+
+
+def build_demand_by_sku(sales_rows: list[dict]) -> dict:
+    """SKUごとの出庫実績を受注データから作る。在庫日数の分母になる。"""
+    by_sku: dict[str, dict] = {}
+    dates: list[str] = []
+
+    for r in sales_rows:
+        status = (r.get("ステータス") or "").strip()
+        if status in EXCLUDE_STATUSES or status not in INCLUDE_STATUSES:
+            continue
+        sku = (r.get("SKU（在庫保管単位）") or "").strip()
+        if not sku:
+            continue
+
+        a = by_sku.setdefault(sku, {
+            "sku": sku, "product": "", "qty": 0.0, "orders": 0,
+            "unitCost": 0.0, "lastOrder": "",
+        })
+        name = (r.get("商品名") or "").strip()
+        if name and not a["product"]:
+            a["product"] = name
+        cost = parse_number(r.get("購入価格"))
+        if cost > 0:
+            a["unitCost"] = cost
+        a["qty"] += parse_number(r.get("発注数"))
+        a["orders"] += 1
+
+        d = to_iso_date(r.get("日付", ""))
+        if d:
+            dates.append(d)
+            if d > a["lastOrder"]:
+                a["lastOrder"] = d
+
+    dates.sort()
+    first, last = (dates[0], dates[-1]) if dates else ("", "")
+    days = 1
+    if first and last:
+        days = max(1, (dt.date.fromisoformat(last) - dt.date.fromisoformat(first)).days + 1)
+    for a in by_sku.values():
+        a["dailyOut"] = a["qty"] / days
+
+    return {"bySku": by_sku, "days": days, "from": first, "to": last}
+
+
+def build_inventory_payload(inv_path: Path, sales_path: Path, master_path: Path | None = None) -> dict:
+    with inv_path.open(encoding="utf-8-sig", newline="") as fh:
+        inv_rows = list(csv.DictReader(fh))
+    with sales_path.open(encoding="utf-8-sig", newline="") as fh:
+        sales_rows = list(csv.DictReader(fh))
+
+    master, _ = load_product_master(master_path)
+    demand = build_demand_by_sku(sales_rows)
+
+    lots: list[dict] = []
+    warnings: list[str] = []
+    skipped = 0
+
+    for r in inv_rows:
+        code = (r.get("商品コード") or "").strip()
+        if not code:
+            skipped += 1
+            continue
+
+        hit = demand["bySku"].get(code)
+        source_name = hit["product"] if hit else (r.get("商品名") or "").strip()
+        resolved = guess_product(source_name)
+        m = master.get(normalize_key(source_name))
+        if m:
+            resolved = {
+                "name": m["name"] or resolved["name"],
+                "category": m["category"] or resolved["category"],
+                "itemType": m["itemType"] or resolved["itemType"],
+            }
+
+        lots.append({
+            "sku": code,
+            # 商品名は受注側を優先。ページ間で表記を揃えるため。
+            "product": hit["product"] if hit else (r.get("商品名") or "").strip(),
+            "warehouseName": (r.get("商品名") or "").strip(),
+            "matched": bool(hit),
+            "category": resolved["category"],
+            "itemType": resolved["itemType"],
+            "site": (r.get("拠点名") or "").strip() or BLANK,
+            "supplier": (r.get("仕入先名") or "").strip() or BLANK,
+            "stockType": (r.get("在庫区分名") or "").strip() or BLANK,
+            "lotNo": (r.get("ロットNo") or "").strip() or BLANK,
+            "stock": parse_number(r.get("在庫数")),
+            "allocated": parse_number(r.get("引当数")),
+            "free": parse_number(r.get("未引当数")),
+            "received": parse_number(r.get("入荷実績数")),
+            "shipped": parse_number(r.get("出荷実績数")),
+            "bestBefore": to_iso_date(r.get("賞味期限", "")),
+            "arrivedOn": to_iso_date(r.get("入荷日", "")),
+            "lastIn": to_iso_date(r.get("最終入庫日", "")),
+            "lastOut": to_iso_date(r.get("最終出庫日", "")),
+            "unitCost": hit["unitCost"] if hit else 0.0,
+            "hasCost": bool(hit and hit["unitCost"] > 0),
+        })
+
+    if skipped:
+        warnings.append(f"商品コードが空の {skipped} 行を除外しました。")
+
+    unmatched = sorted({l["product"] for l in lots if not l["hasCost"]})
+    if unmatched:
+        warnings.append(
+            f"受注データと突き合わない商品が {len(unmatched)} 件あります。"
+            "在庫数量は集計しますが、単価が取れないため在庫金額と在庫日数は算出できません。"
+        )
+
+    options = {}
+    for key in INVENTORY_OPTION_KEYS:
+        counts = Counter(l[key] for l in lots if l.get(key))
+        options[key] = [
+            {"value": v, "count": c}
+            for v, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+
+    skus = {l["sku"] for l in lots}
+    matched_skus = {l["sku"] for l in lots if l["hasCost"]}
+
+    return {
+        "meta": {
+            "page": "inventory",
+            "title": "在庫ダッシュボード",
+            "eyebrow": "CRAFT WONDER / SCM INVENTORY",
+            "generatedAt": dt.datetime.now().strftime("%Y/%m/%d %H:%M") + "（プレビュー生成時刻）",
+            "sheet": f"{inv_path.name}（プレビュー / 本番は RAW_Inventory シート）",
+            "sourceRows": len(inv_rows),
+            "lotCount": len(lots),
+            "skuCount": len(skus),
+            "matchedSkus": len(matched_skus),
+            "demandDays": demand["days"],
+            "demandFrom": demand["from"],
+            "demandTo": demand["to"],
+            "thresholds": INVENTORY_THRESHOLDS,
+            "warnings": warnings,
+        },
+        "options": options,
+        "demand": demand["bySku"],
+        "rows": lots,
+    }
+
+
 # --- HTML 組み立て ----------------------------------------------------------
 
-ARTIFACT_TITLE = "CW 業務店営業ダッシュボード"
+PAGE_FILES = {
+    "b2b": ("Index.html", "Scripts.html", "CW 業務店営業ダッシュボード"),
+    "inventory": ("Inventory.html", "InventoryScripts.html", "CW 在庫ダッシュボード"),
+}
 
 
-def build_html(payload: dict, fmt: str = "standalone") -> str:
+def build_html(payload: dict, fmt: str = "standalone", page: str = "b2b") -> str:
     """fmt="standalone" は完全なHTML文書、"artifact" は Artifact 公開用の断片。
 
     Artifact は公開時に doctype / html / head / body の骨組みを付けるので、
     こちらは <title> + <style> + 本文 + <script> だけを出す。
     """
-    index = (APP_DIR / "Index.html").read_text(encoding="utf-8")
+    index_name, scripts_name, artifact_title = PAGE_FILES[page]
+    index = (APP_DIR / index_name).read_text(encoding="utf-8")
     styles = (APP_DIR / "Styles.html").read_text(encoding="utf-8")
-    scripts = (APP_DIR / "Scripts.html").read_text(encoding="utf-8")
+    scripts = (APP_DIR / scripts_name).read_text(encoding="utf-8")
 
     # </script> がJSON内に現れてもタグが閉じないようにエスケープする
     data_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
@@ -385,7 +544,7 @@ def build_html(payload: dict, fmt: str = "standalone") -> str:
     )
 
     html = index.replace("<?!= include('Styles'); ?>", styles)
-    html = html.replace("<?!= include('Scripts'); ?>", banner + scripts)
+    html = html.replace(f"<?!= include('{scripts_name[:-5]}'); ?>", banner + scripts)
 
     if fmt == "standalone":
         return html
@@ -396,7 +555,7 @@ def build_html(payload: dict, fmt: str = "standalone") -> str:
         raise SystemExit("Index.html から <body> を取り出せませんでした")
 
     return (
-        f"<title>{ARTIFACT_TITLE}</title>\n"
+        f"<title>{artifact_title}</title>\n"
         + styles.strip()
         + "\n"
         + body.group(1).strip()
@@ -406,8 +565,10 @@ def build_html(payload: dict, fmt: str = "standalone") -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--csv", required=True, type=Path)
-    ap.add_argument("--master", type=Path, help="Product_Master CSV（原価・正規化商品名）")
+    ap.add_argument("--page", choices=["b2b", "inventory"], default="b2b")
+    ap.add_argument("--csv", required=True, type=Path, help="受注明細 CSV（RAW_B2B）")
+    ap.add_argument("--inventory", type=Path, help="在庫明細 CSV（RAW_Inventory）。--page inventory で必須")
+    ap.add_argument("--master", type=Path, help="Product_Master CSV（正規化商品名・カテゴリ）")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument(
         "--format",
@@ -417,21 +578,35 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    payload = build_payload(args.csv, args.master)
+    if args.page == "inventory":
+        if not args.inventory:
+            ap.error("--page inventory には --inventory が必要です")
+        payload = build_inventory_payload(args.inventory, args.csv, args.master)
+    else:
+        payload = build_payload(args.csv, args.master)
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(build_html(payload, args.format), encoding="utf-8")
+    args.out.write_text(build_html(payload, args.format, args.page), encoding="utf-8")
 
     meta = payload["meta"]
     print(f"wrote {args.out} ({args.out.stat().st_size:,} bytes)")
     print(f"  source rows : {meta['sourceRows']:,}")
-    print(f"  scoped rows : {meta['rowCount']:,}  ({', '.join(B2B_CUSTOMER_TYPES)})")
-    print(f"  orders      : {meta['orderCount']:,}")
-    print(f"  customers   : {meta['customerCount']:,}")
-    print(f"  coverage    : {meta['coverageFrom']} .. {meta['coverageTo']}")
-    cov = meta["costCoverage"]
-    print(f"  cost set    : {cov['withCost']} / {cov['total']} products")
-    if meta["costNotice"]:
-        print(f"  cost notice : {meta['costNotice']}")
+
+    if args.page == "inventory":
+        print(f"  lots        : {meta['lotCount']:,}")
+        print(f"  skus        : {meta['skuCount']:,}  (matched {meta['matchedSkus']})")
+        print(f"  demand span : {meta['demandFrom']} .. {meta['demandTo']} ({meta['demandDays']}d)")
+    else:
+        scope = ", ".join(B2B_CUSTOMER_TYPES) if B2B_CUSTOMER_TYPES else "全顧客種別"
+        print(f"  scoped rows : {meta['rowCount']:,}  ({scope})")
+        print(f"  orders      : {meta['orderCount']:,}")
+        print(f"  customers   : {meta['customerCount']:,}")
+        print(f"  coverage    : {meta['coverageFrom']} .. {meta['coverageTo']}")
+        cov = meta["costCoverage"]
+        print(f"  cost set    : {cov['withCost']} / {cov['total']} products")
+        if meta["costNotice"]:
+            print(f"  cost notice : {meta['costNotice']}")
+
     for w in meta["warnings"]:
         print(f"  warning     : {w}")
 

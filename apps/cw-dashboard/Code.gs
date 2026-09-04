@@ -26,8 +26,33 @@
 var BLANK_SEGMENT = '未入力';
 
 var SHEET_RAW_B2B = 'RAW_B2B';
+var SHEET_RAW_INVENTORY = 'RAW_Inventory';
 var SHEET_PRODUCT_MASTER = 'Product_Master';
 var SHEET_CONFIG = 'Config';
+
+/** RAW_Inventory の見出し。WMSの在庫明細エクスポートの列名をそのまま使う。 */
+var INV = {
+  ownerName: '荷主名',
+  siteName: '拠点名',
+  itemCode: '商品コード',
+  itemName: '商品名',
+  jan: 'JANコード',
+  category: 'カテゴリー名',
+  supplier: '仕入先名',
+  stock: '在庫数',
+  unit: '数量単位',
+  allocated: '引当数',
+  free: '未引当数',
+  received: '入荷実績数',
+  shipped: '出荷実績数',
+  lotNo: 'ロットNo',
+  producedOn: '製造日',
+  bestBefore: '賞味期限',
+  arrivedOn: '入荷日',
+  stockType: '在庫区分名',
+  lastIn: '最終入庫日',
+  lastOut: '最終出庫日'
+};
 
 /** RAW_B2B に必須の見出し。CSVエクスポートの列名をそのまま使う。 */
 var COL = {
@@ -76,7 +101,19 @@ var DEFAULT_CONFIG = {
   // 未入力ラベル。
   blankLabel: '未入力',
   // フォロー候補と判定する「平均発注間隔超過」の下限日数。
-  followOverdueDays: 0
+  followOverdueDays: 0,
+
+  // --- 在庫ページのしきい値 ---
+  // 在庫日数（有効在庫 ÷ 日次平均出庫）がこの日数未満なら「要補充」。
+  inventoryLowDays: 14,
+  // 在庫日数がこの日数以下なら「適正」、超えたら「過剰」。
+  inventoryHealthyDays: 90,
+  // 在庫日数がこの日数を超えたら「大幅過剰」。
+  inventoryExcessDays: 365,
+  // 最終出庫日からこの日数を超えて動きがなければ「滞留」。
+  inventoryStagnantDays: 90,
+  // 賞味期限の残日数がこの日数以下なら「期限接近」。
+  inventoryExpirySoonDays: 90
 };
 
 // ---------------------------------------------------------------------------
@@ -87,9 +124,15 @@ var DEFAULT_CONFIG = {
  * Webアプリのエントリポイント。
  * ?page=b2b / ?page=inventory のようにページを切り替える。
  */
+var PAGE_TEMPLATES = {
+  b2b: 'Index',
+  inventory: 'Inventory'
+};
+
 function doGet(e) {
   var page = (e && e.parameter && e.parameter.page) || 'b2b';
-  var t = HtmlService.createTemplateFromFile('Index');
+  var template = PAGE_TEMPLATES[page] || PAGE_TEMPLATES.b2b;
+  var t = HtmlService.createTemplateFromFile(template);
   t.page = page;
   return t
     .evaluate()
@@ -116,6 +159,8 @@ function getDashboardData(options) {
   switch (page) {
     case 'b2b':
       return getB2BData();
+    case 'inventory':
+      return getInventoryData();
     default:
       throw new Error('未対応のページです: ' + page);
   }
@@ -176,6 +221,184 @@ function getB2BData() {
     options: buildOptions_(scoped),
     rows: scoped
   };
+}
+
+// ---------------------------------------------------------------------------
+// 在庫（SCM）
+// ---------------------------------------------------------------------------
+
+/**
+ * 在庫ダッシュボード用のペイロードを組み立てる。
+ *
+ * RAW_Inventory は WMS のロット単位エクスポート（1行 = 1ロット）。
+ * 単価と出庫ペースは RAW_B2B 側にしかないため、
+ * SKU（在庫保管単位）＝ 在庫側の商品コード で突き合わせる。
+ * 商品名は在庫側と受注側で表記が全く違う（★■▲の接頭辞・全角スペース等）ので使わない。
+ */
+function getInventoryData() {
+  var config = readConfig_();
+  var master = readProductMaster_();
+  var invTable = readSheetAsObjects_(SHEET_RAW_INVENTORY);
+  var salesTable = readSheetAsObjects_(SHEET_RAW_B2B, true);
+
+  var demand = buildDemandBySku_(salesTable.rows, config);
+  var lots = [];
+  var warnings = [];
+  var skippedEmpty = 0;
+
+  for (var i = 0; i < invTable.rows.length; i++) {
+    var r = invTable.rows[i];
+    var code = text_(r[INV.itemCode]);
+    if (!code) { skippedEmpty++; continue; }
+
+    var hit = demand.bySku[code] || null;
+    var resolved = master.resolve(hit ? hit.product : text_(r[INV.itemName]));
+
+    lots.push({
+      sku: code,
+      // 商品名は受注側の名前を優先する。ページ間で同じ表記に揃えるため。
+      product: hit ? hit.product : text_(r[INV.itemName]),
+      warehouseName: text_(r[INV.itemName]),
+      matched: !!hit,
+      category: resolved.category,
+      itemType: resolved.itemType,
+      site: text_(r[INV.siteName]) || config.blankLabel,
+      supplier: text_(r[INV.supplier]) || config.blankLabel,
+      stockType: text_(r[INV.stockType]) || config.blankLabel,
+      lotNo: text_(r[INV.lotNo]) || config.blankLabel,
+      stock: parseNumber_(r[INV.stock]),
+      allocated: parseNumber_(r[INV.allocated]),
+      free: parseNumber_(r[INV.free]),
+      received: parseNumber_(r[INV.received]),
+      shipped: parseNumber_(r[INV.shipped]),
+      bestBefore: toIsoDate_(r[INV.bestBefore]),
+      arrivedOn: toIsoDate_(r[INV.arrivedOn]),
+      lastIn: toIsoDate_(r[INV.lastIn]),
+      lastOut: toIsoDate_(r[INV.lastOut]),
+      unitCost: hit ? hit.unitCost : 0,
+      hasCost: !!(hit && hit.unitCost > 0)
+    });
+  }
+
+  if (skippedEmpty) {
+    warnings.push('商品コードが空の ' + skippedEmpty + ' 行を除外しました。');
+  }
+
+  var unmatched = {};
+  lots.forEach(function (l) { if (!l.hasCost) unmatched[l.product] = true; });
+  var unmatchedNames = Object.keys(unmatched);
+  if (unmatchedNames.length) {
+    warnings.push(
+      '受注データと突き合わない商品が ' + unmatchedNames.length + ' 件あります。' +
+      '在庫数量は集計しますが、単価が取れないため在庫金額と在庫日数は算出できません。'
+    );
+  }
+
+  return {
+    meta: {
+      page: 'inventory',
+      title: '在庫ダッシュボード',
+      eyebrow: 'CRAFT WONDER / SCM INVENTORY',
+      generatedAt: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'),
+      sheet: SHEET_RAW_INVENTORY,
+      sourceRows: invTable.rows.length,
+      lotCount: lots.length,
+      skuCount: countUnique_(lots, 'sku'),
+      matchedSkus: countUnique_(lots.filter(function (l) { return l.hasCost; }), 'sku'),
+      // 出庫ペースの分母。受注データの期間（日数）。
+      demandDays: demand.days,
+      demandFrom: demand.from,
+      demandTo: demand.to,
+      thresholds: {
+        low: config.inventoryLowDays,
+        healthy: config.inventoryHealthyDays,
+        excess: config.inventoryExcessDays,
+        stagnant: config.inventoryStagnantDays,
+        expirySoon: config.inventoryExpirySoonDays
+      },
+      warnings: warnings
+    },
+    options: buildInventoryOptions_(lots),
+    demand: demand.bySku,
+    rows: lots
+  };
+}
+
+/**
+ * SKU ごとの出庫実績を受注データから作る。
+ * 在庫日数の分母になるので、期間の日数も一緒に返す。
+ */
+function buildDemandBySku_(salesRows, config) {
+  var include = {};
+  (config.includeStatuses || []).forEach(function (v) { include[v] = true; });
+  var exclude = {};
+  (config.excludeStatuses || []).forEach(function (v) { exclude[v] = true; });
+
+  var bySku = {};
+  var dates = [];
+
+  salesRows.forEach(function (r) {
+    var status = text_(r[COL.status]);
+    if (exclude[status]) return;
+    if (Object.keys(include).length && !include[status]) return;
+
+    var sku = text_(r[COL.sku]);
+    if (!sku) return;
+
+    if (!bySku[sku]) {
+      bySku[sku] = { sku: sku, product: '', qty: 0, orders: 0, unitCost: 0, lastOrder: '' };
+    }
+    var a = bySku[sku];
+    var name = text_(r[COL.product]);
+    if (name && !a.product) a.product = name;
+
+    var cost = parseNumber_(r[COL.purchasePrice]);
+    if (cost > 0) a.unitCost = cost;
+
+    a.qty += parseNumber_(r[COL.qty]);
+    a.orders++;
+
+    var d = toIsoDate_(r[COL.orderDate]);
+    if (d) {
+      dates.push(d);
+      if (d > a.lastOrder) a.lastOrder = d;
+    }
+  });
+
+  dates.sort();
+  var from = dates.length ? dates[0] : '';
+  var to = dates.length ? dates[dates.length - 1] : '';
+  var days = 1;
+  if (from && to) {
+    days = Math.max(1, Math.round(
+      (new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 86400000
+    ) + 1);
+  }
+
+  Object.keys(bySku).forEach(function (k) {
+    bySku[k].dailyOut = bySku[k].qty / days;
+  });
+
+  return { bySku: bySku, days: days, from: from, to: to };
+}
+
+function buildInventoryOptions_(lots) {
+  var keys = ['category', 'itemType', 'product', 'supplier', 'site', 'stockType'];
+  var out = {};
+  keys.forEach(function (key) {
+    var counts = {};
+    lots.forEach(function (l) {
+      var v = l[key];
+      if (!v) return;
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    out[key] = Object.keys(counts)
+      .map(function (v) { return { value: v, count: counts[v] }; })
+      .sort(function (a, b) {
+        return b.count - a.count || a.value.localeCompare(b.value, 'ja');
+      });
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------

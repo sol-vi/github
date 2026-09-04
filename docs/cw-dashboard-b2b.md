@@ -377,7 +377,5 @@ CRAFT WONDER DASHBOARD
 └ Report ─ Monthly
 ```
 
-在庫ページを追加する場合、`Styles.html` はそのまま共有し、
-`getInventoryData()` を `Code.gs` に追加、`RAW_Inventory` シートを新設する。
-在庫のローデータ形式は `data/RAW_Inventory_sample.csv` を参照（WMS在庫明細の
-エクスポート。`在庫数` / `引当数` / `未引当数` / `最終入庫日` / `最終出庫日` 等を含む）。
+在庫ページは実装済み（`docs/cw-dashboard-inventory.md`）。`Styles.html` を共有し、
+`Code.gs` の `getInventoryData()` と `Inventory.html` / `InventoryScripts.html` で構成する。
