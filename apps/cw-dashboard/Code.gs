@@ -167,11 +167,11 @@ function getDashboardData(options) {
 }
 
 // ---------------------------------------------------------------------------
-// 業務店営業（B2B）
+// 受注売上（B2B / 全チャネル）
 // ---------------------------------------------------------------------------
 
 /**
- * 業務用・飲食店 受注売上ダッシュボード用のペイロードを組み立てる。
+ * 受注売上ダッシュボード用のペイロードを組み立てる。
  * 返り値の形はフロントとの契約なので、変更時は Scripts.html も併せて更新すること。
  */
 function getB2BData() {
@@ -199,8 +199,8 @@ function getB2BData() {
   return {
     meta: {
       page: 'b2b',
-      title: '業務用・飲食店 受注売上ダッシュボード',
-      eyebrow: 'CRAFT WONDER / B2B SALES',
+      title: '受注売上ダッシュボード',
+      eyebrow: 'CRAFT WONDER / SALES',
       generatedAt: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'),
       sheet: SHEET_RAW_B2B,
       sourceRows: table.rows.length,

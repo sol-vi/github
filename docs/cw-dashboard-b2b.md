@@ -1,4 +1,8 @@
-# CW Dashboard｜業務用・飲食店 受注売上ダッシュボード
+# CW Dashboard｜受注売上ダッシュボード
+
+対象は**全顧客種別**（飲食店・卸売・量販店/百貨店・酒販小売・EC・イベント等）。
+特定チャネルだけを見る場合は画面の顧客種別フィルター、恒久的に絞る場合は
+`Config.b2bCustomerTypes` を使う。
 
 `CW_Dashboard_Design_Handoff_Prompt` を共通Master UIとして実装した、
 Google Spreadsheet → GAS → HTML 構成の社内Dashboardページ。
@@ -13,8 +17,10 @@ Google Spreadsheet → GAS → HTML 構成の社内Dashboardページ。
 | `apps/cw-dashboard/Scripts.html` | データ取得・集計・描画・フィルター・並び替え |
 | `apps/cw-dashboard/appsscript.json` | GASプロジェクト設定 |
 | `apps/cw-dashboard/tools/build_preview.py` | GAS無しで開けるプレビューHTMLの生成 |
-| `apps/cw-dashboard/tools/build_product_master.py` | `Product_Master` のひな形生成（原価入力用） |
+| `apps/cw-dashboard/tools/build_product_master.py` | `Product_Master` のひな形生成（商品名の正規化・カテゴリ整備用） |
 | `apps/cw-dashboard/preview/b2b.html` | 上記の生成物（自動生成・直接編集しない） |
+
+在庫ページは `docs/cw-dashboard-inventory.md`。`Styles.html` を共有する。
 
 `Styles.html` はページ間で共有する。**在庫・EC・SNS等を追加するときも、このファイルを
 書き換えるのではなく、そのまま読み込むこと**（引き継ぎ書 §22）。
@@ -78,6 +84,15 @@ Google Spreadsheet → GAS → HTML 構成の社内Dashboardページ。
 **粗利の原価は `RAW_B2B.購入価格` が一次情報**。Product_Master は商品名の正規化と
 カテゴリ整備のためのシートで、原価のために用意する必要はない。
 
+ひな形の生成:
+
+```bash
+python3 apps/cw-dashboard/tools/build_product_master.py \
+  --csv data/RAW_B2B_sample.csv --out data/Product_Master.csv
+```
+
+購入価格が空の商品も一覧で報告するので、マスタ未整備の洗い出しにも使える。
+
 突き合わせは `normalizeKey_()` で行うため、空白・全半角括弧・`〈〉`・
 `Whisly`/`Whisky` の違いは吸収される。
 
@@ -106,7 +121,9 @@ Google Spreadsheet → GAS → HTML 構成の社内Dashboardページ。
 4. **デプロイ → 新しいデプロイ → 種類：ウェブアプリ**
    - 次のユーザーとして実行：**自分**
    - アクセスできるユーザー：**組織内の全員**（社内限定）
-5. 発行されたURLを開く。`?page=b2b` が既定ページ。
+5. 発行されたURLを開く。`?page=b2b` が既定ページ、`?page=inventory` が在庫ページ。
+
+在庫ページも同じプロジェクトに `Inventory.html` / `InventoryScripts.html` を追加すれば動く。
 
 Spreadsheetを更新したあとは、Dashboardを再読み込みすれば最新データが反映される
 （初期版はページ読み込み時取得。定期更新は必要になってから追加する）。
@@ -140,7 +157,7 @@ python3 apps/cw-dashboard/tools/build_preview.py \
 | セクション | Kicker | 内容 |
 |---|---|---|
 | Header | — | タイトル / 更新日時 / 対象スコープ / データ期間 |
-| Navigation | — | Overview / Sales / SCM / Marketing / Report（未実装ページはグレーアウト） |
+| Navigation | — | Overview / Sales / SCM / Marketing / Report。**受注売上 ⇔ 在庫は相互リンク**、未実装はグレーアウト |
 | Filter Area | — | 3列グリッド。**リセットは右下固定** |
 | KPI Cards | — | 13指標（売上・販売粗利・粗利率・無償提供原価・純粗利・純粗利率・配送料ほか）＋前期比バッジ |
 | Trend | `TREND` | 積み上げ棒＋受注件数ライン。売上/粗利/数量・日次/週次/月次・積み上げ内訳（区分/商品/カテゴリ/顧客種別/店舗）・表示件数を切替 |
@@ -371,8 +388,8 @@ TREND の棒は、区分・商品・商品カテゴリ・顧客種別・店舗�
 ```text
 CRAFT WONDER DASHBOARD
 ├ Overview
-├ Sales ─ 業務店営業（本ページ） / EC売上
-├ SCM   ─ 在庫 / 出荷
+├ Sales ─ 受注売上（本ページ） / EC売上
+├ SCM   ─ 在庫（実装済み） / 出荷
 ├ Marketing ─ CRM / SNS / 広告
 └ Report ─ Monthly
 ```

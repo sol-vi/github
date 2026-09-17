@@ -330,8 +330,8 @@ def build_payload(csv_path: Path, master_path: Path | None = None) -> dict:
     return {
         "meta": {
             "page": "b2b",
-            "title": "業務用・飲食店 受注売上ダッシュボード",
-            "eyebrow": "CRAFT WONDER / B2B SALES",
+            "title": "受注売上ダッシュボード",
+            "eyebrow": "CRAFT WONDER / SALES",
             "generatedAt": dt.datetime.now().strftime("%Y/%m/%d %H:%M") + "（プレビュー生成時刻）",
             "sheet": f"{csv_path.name}（プレビュー / 本番は RAW_B2B シート）",
             "sourceRows": len(raw_rows),
@@ -520,7 +520,7 @@ def build_inventory_payload(inv_path: Path, sales_path: Path, master_path: Path 
 # --- HTML 組み立て ----------------------------------------------------------
 
 PAGE_FILES = {
-    "b2b": ("Index.html", "Scripts.html", "CW 業務店営業ダッシュボード"),
+    "b2b": ("Index.html", "Scripts.html", "CW 受注売上ダッシュボード"),
     "inventory": ("Inventory.html", "InventoryScripts.html", "CW 在庫ダッシュボード"),
 }
 
