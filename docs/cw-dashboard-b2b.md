@@ -106,6 +106,9 @@ python3 apps/cw-dashboard/tools/build_product_master.py \
 | `includeStatuses` | `確定済み,完了` | 集計対象のステータス |
 | `excludeStatuses` | `合計` | 除外するステータス（合計行など） |
 
+在庫ページのしきい値（`inventoryLowDays` など）も同じシートで設定する。
+キーと読み方は `docs/cw-dashboard-inventory.md` §4 を参照。
+
 ---
 
 ## 2. デプロイ手順

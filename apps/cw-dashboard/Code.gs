@@ -243,7 +243,10 @@ function getInventoryData() {
 
   var demand = buildDemandBySku_(salesTable.rows, config);
   var lots = [];
-  var warnings = [];
+  // 在庫ページに関係する Config の警告だけを出す（受注ページの設定は受注側で扱う）。
+  var warnings = config.configWarnings
+    .filter(function (w) { return w.key.indexOf('inventory') === 0; })
+    .map(function (w) { return w.text; });
   var skippedEmpty = 0;
 
   for (var i = 0; i < invTable.rows.length; i++) {
@@ -776,7 +779,15 @@ function normalizeKey_(s) {
 // Config
 // ---------------------------------------------------------------------------
 
-/** Config シート（キー / 値の2列）を読む。無ければ既定値。 */
+/**
+ * Config シート（キー / 値の2列）を読む。無ければ既定値。
+ *
+ * 既定値の型に合わせて読む。数値の項目（在庫しきい値など）は数値に変換し、
+ * 空欄なら既定値のまま、日数として読めない値は既定値に戻して
+ * `configWarnings` に理由を残す（画面下部の注記に出す）。
+ * 文字列のまま入れると、空欄が 0 扱いになったり "1,000" が NaN になったりして
+ * 在庫ステータスの判定が黙って崩れるため。
+ */
 function readConfig_() {
   var cfg = {};
   Object.keys(DEFAULT_CONFIG).forEach(function (k) {
@@ -784,22 +795,59 @@ function readConfig_() {
       ? DEFAULT_CONFIG[k].slice()
       : DEFAULT_CONFIG[k];
   });
+  var warnings = [];
 
   var table = readSheetAsObjects_(SHEET_CONFIG, true);
   table.rows.forEach(function (r) {
     var key = text_(r['キー']);
     var val = text_(r['値']);
-    if (!key) return;
-    if (key === 'b2bCustomerTypes' || key === 'includeStatuses' || key === 'excludeStatuses') {
+    if (!key || !Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) return;
+
+    var def = DEFAULT_CONFIG[key];
+    if (def instanceof Array) {
       cfg[key] = val ? val.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
-    } else if (key === 'followOverdueDays') {
-      cfg[key] = parseNumber_(val);
-    } else if (key in cfg) {
+    } else if (typeof def === 'number') {
+      if (!val) return; // 空欄は既定値のまま
+      var n = parseConfigDays_(val);
+      if (n === null) {
+        warnings.push({
+          key: key,
+          text: 'Config の ' + key + '「' + val + '」は日数として読めないため、既定値 ' + def + ' を使っています。'
+        });
+        return;
+      }
+      cfg[key] = n;
+    } else {
       cfg[key] = val;
     }
   });
 
+  // 順序が逆だと「適正」「過剰」の帯が消える。値は直さず、気づけるように知らせる。
+  if (cfg.inventoryLowDays > cfg.inventoryHealthyDays ||
+      cfg.inventoryHealthyDays > cfg.inventoryExcessDays) {
+    warnings.push({
+      key: 'inventoryLowDays',
+      text: 'Config の在庫日数しきい値が inventoryLowDays（' + cfg.inventoryLowDays + '）≤ inventoryHealthyDays（' +
+        cfg.inventoryHealthyDays + '）≤ inventoryExcessDays（' + cfg.inventoryExcessDays +
+        '）の順になっていないため、在庫ステータスが意図どおりに分かれない可能性があります。'
+    });
+  }
+
+  cfg.configWarnings = warnings;
   return cfg;
+}
+
+/**
+ * Config の日数を読む。全角数字・桁区切り・末尾の「日」は許容する。
+ * 0 以上の数値として読めなければ null。
+ */
+function parseConfigDays_(val) {
+  var s = String(val)
+    .replace(/[０-９．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[,，\s]/g, '')
+    .replace(/日$/, '');
+  if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  return Number(s);
 }
 
 // ---------------------------------------------------------------------------

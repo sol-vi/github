@@ -4,7 +4,8 @@
 最初にこのファイルを全部読み、続けて §3 の「最初に読むファイル」を読んでから作業してください。
 
 作成日：2026-11-09
-最終コミット：`751b86c`（ブランチ `claude/cw-inventory-dashboard-design-v7jejn`）
+更新日：2026-11-11（Config しきい値の不具合を修正）
+ブランチ：`claude/cw-inventory-dashboard-design-v7jejn`（最新コミットは `git log` で確認）
 
 ---
 
@@ -41,7 +42,7 @@
 | Artifact 公開 | 済み（§13） |
 | 仕様書 | `docs/cw-dashboard-inventory.md` |
 | **実際のSpreadsheet／GASへのデプロイ** | **未実施・未検証** |
-| 既知の不具合 | 1件（Config のしきい値が数値化されない。§11-2） |
+| 既知の不具合 | なし（Config しきい値の数値化は 2026-11-11 に修正済み。§11-2） |
 
 ---
 
@@ -215,7 +216,13 @@ SKU 単位で判定（`InventoryScripts.html` の `statusOf()`）。しきい値
 その他：滞留 `inventoryStagnantDays`（90日超）、期限接近 `inventoryExpirySoonDays`（残90日以内）。
 期限の帯は 期限切れ / 30日以内 / 90日以内 / 180日以内 / 181日以上 / 期限なし。
 
-**注意：Config シートで上書きすると現状は文字列のまま入る（§11-2）。**
+Config シート（`キー` / `値`）で上書きできる。読み方は `readConfig_()`：
+
+- 数値に変換する。全角数字・桁区切り（`1,000`）・末尾の「日」（`60日`）は読める
+- **空欄は既定値のまま**
+- 読めない値（`abc`、負数など）は既定値に戻し、画面下部の注記に理由を出す
+- `inventoryLowDays ≤ inventoryHealthyDays ≤ inventoryExcessDays` の順でなければ注記で知らせる（値は直さない）
+- プレビュー（`build_preview.py`）は Config を読まず、既定値の固定（`INVENTORY_THRESHOLDS`）
 
 ---
 
@@ -295,15 +302,25 @@ Master UI の基本順序（Header → Filter → KPI → Charts → Signals →
 - シート `RAW_Inventory`（在庫CSVを UTF-8 で取り込む）と `RAW_B2B`
 - GAS プロジェクトに `Inventory.html` と `InventoryScripts.html` を**同名で**追加
 
-### 11-2. Config の在庫しきい値が数値化されない（不具合）
+### 11-2. Config の在庫しきい値（2026-11-11 修正済み）
 
-`Code.gs` の `readConfig_()` は `followOverdueDays` だけを `parseNumber_()` し、
-`inventoryLowDays` などは `cfg[key] = val` で**文字列のまま**入れている。
-比較演算の型変換で多くの場合は動くが、**値が空欄だと `''` → 0 扱いになり判定が崩れる**。
+**以前の不具合**：`readConfig_()` が在庫しきい値を文字列のまま入れていたため、
+空欄は 0 扱い（`10 < ''` が false になり「要補充」が出ない）、`1,000` や `abc` は NaN になって
+判定が黙って崩れていた。
 
-修正案：在庫しきい値の5キーも `parseNumber_()` を通し、空欄なら既定値を残す。
-直す場合は `build_preview.py` 側（`INVENTORY_THRESHOLDS` は固定値）との整合も確認すること。
-**ユーザーにはまだ修正の可否を確認していない。** 着手前に確認すること。
+**修正内容**：既定値が数値のキーは `parseConfigDays_()` で数値化する（読み方は §8）。
+読めない値は既定値に戻して `configWarnings` に残し、`getInventoryData()` が `inventory*` キーの分だけ
+`meta.warnings` に入れて画面下部に出す。
+
+**確認したこと**（Node で `Code.gs` をそのまま実行し、Spreadsheet を CSV で差し替えて確認）：
+- 30 / 空欄 / `1,000` / `１２０` / `60日` / `abc` / `-5` / 順序逆転 の各入力で期待どおりの値と警告になる
+- Config なしの結果は修正前と同じ（127ロット・40 SKU・突合 31、しきい値は既定値）
+- `inventoryLowDays=30` のとき画面の要補充は 2件。CSV から Python で独立に計算した値と一致（14日なら 1件）
+- Chromium で描画してコンソールエラー 0件
+
+`followOverdueDays` は Config に定義があるだけで、どこからも使われていない（受注ページの旧仕様の名残）。
+
+**実 GAS 環境では未確認**なのは §11-1 と同じ。
 
 ### 11-3. 単価未突合の9 SKU
 
@@ -385,8 +402,7 @@ Artifact はプレビュー（実データ埋め込み）。日付依存の数�
 着手前に必ずユーザーへ優先度と方針を確認すること。
 
 1. 実 Spreadsheet／GAS へのデプロイと動作確認（§11-1）
-2. Config しきい値の数値化の修正（§11-2）
-3. 最新の在庫エクスポートでの更新（現データは70日前）
-4. 未突合9 SKU の単価補完方法の決定と実装（§11-3）
-5. 統合ナビの残りページ（出荷・Overview など）。在庫と同じく `Styles.html` を共有し、
+2. 最新の在庫エクスポートでの更新（現データの最終入庫は 2026-08-31）
+3. 未突合9 SKU の単価補完方法の決定と実装（§11-3）
+4. 統合ナビの残りページ（出荷・Overview など）。在庫と同じく `Styles.html` を共有し、
    `PAGE_TEMPLATES` と `getDashboardData()` に分岐を足す形で追加する

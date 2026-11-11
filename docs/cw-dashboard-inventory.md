@@ -103,6 +103,10 @@ SKUごとの在庫日数は、出庫が極端に少ない商品で数千日に�
 滞留の判定は `inventoryStagnantDays`（90日）、期限接近は
 `inventoryExpirySoonDays`（90日）。
 
+Config の値は数値として読む。全角数字・桁区切り・末尾の「日」は許容し、空欄は既定値のまま。
+読めない値（文字・負数）は既定値に戻して画面下部の注記に理由を出す。
+`inventoryLowDays ≤ inventoryHealthyDays ≤ inventoryExcessDays` の順でない場合も注記で知らせる。
+
 ---
 
 ## 5. ページ構成
