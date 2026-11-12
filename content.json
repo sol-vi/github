@@ -1,0 +1,60 @@
+{
+  "_memo": "原稿設定ファイル。文言はここだけを直して `node src/build.js` を実行すれば全素材を作り直せます。配列の1要素が1行（改行位置）です。[[ ]] で囲んだ部分は大きく強調表示されます。",
+
+  "brand": {
+    "blue": "#21439B",
+    "white": "#FFFFFF",
+    "black": "#111111",
+    "gray": "#F2F4F7",
+    "fontFamily": "\"Yu Gothic\", \"YuGothic\", \"游ゴシック\", \"Noto Sans JP\", sans-serif",
+    "logo": "assets/thrive_logo.png",
+    "logoWhite": "assets/thrive_logo_white.png",
+    "logoWidth": 180,
+    "logoMargin": 48
+  },
+
+  "F1": {
+    "pages": [
+      {
+        "type": "cover",
+        "headline": ["冬の帰宅後", "あるある、", "いくつ当てはまる？"]
+      },
+      {
+        "type": "item",
+        "icon": "sofaCoat",
+        "text": ["コートを着たまま、", "まずソファに座る"]
+      },
+      {
+        "type": "item",
+        "icon": "heater",
+        "text": ["暖房の前から", "動けない"]
+      },
+      {
+        "type": "item",
+        "icon": "bath",
+        "text": ["お風呂を", "わかしたのに、", "入るまでが長い"]
+      },
+      {
+        "type": "item",
+        "icon": "clock",
+        "big": true,
+        "text": ["「あと[[5]]分」が、", "気づけば[[30]]分"]
+      },
+      {
+        "type": "closing",
+        "headline": ["何個当てはまった？"],
+        "body": ["数字でコメントしてください。", "「これ自分だ」と思った人に", "送ってみてください。"]
+      }
+    ]
+  },
+
+  "R4": {
+    "fps": 30,
+    "duration": 7,
+    "title": ["冬の夜、", "あなたはどっち派？"],
+    "a": { "label": "A", "icon": "bath", "text": ["湯船で", "ゆっくり"] },
+    "b": { "label": "B", "icon": "cushion", "text": ["暖かい部屋で", "ごろごろ"] },
+    "cta": ["AかB、コメントで教えてください"],
+    "cover": ["冬の夜、", "どっち派？"]
+  }
+}
