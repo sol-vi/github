@@ -50,6 +50,8 @@ function logo(onBlue, extraStyle = '') {
 }
 
 function baseHtml(w, h, body, css = '') {
+  // content.json の brand.fontScale で全ページの文字サイズを一括調整
+  css = css.replace(/font-size:(\d+)px/g, (_, n) => `font-size:${Math.round(n * (B.fontScale ?? 1))}px`);
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><style>
   ${fontCss()}
   * { margin:0; padding:0; box-sizing:border-box; }
