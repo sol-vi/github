@@ -1,0 +1,351 @@
+<title>Agent Town</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* 配置: 上に町(主役)、その下に再生バー、さらに下に「誰が何をしているか」と記録の2列。測量図のような冷たい紙色に、現場の安全色を1色だけ。 */
+:root {
+	--bg: #e9eef2; --panel: #f7f9fb; --ink: #1a2530; --muted: #5b6b79; --line: #cbd5dd;
+	--accent: #f2a900; --ok: #1a8f6a; --err: #c9372c;
+	--ground: #dbe3e9; --road: #f4f7f9; --window: #fdfefe; --shadow: rgba(26, 37, 48, .18);
+	--d-hall: #8f86d6; --d-archive: #6fb8a0; --d-workshop: #e58a66; --d-tower: #6ea6dc; --d-site: #e6bf5a; --d-depot: #a9b4bf; --d-park: #9fd0a4;
+	--a1: #2b62d1; --a2: #14805f; --a3: #b8402b; --a4: #7046c8; --a5: #8a6100; --a6: #0d7c91;
+	--display: "Space Grotesk", "Hiragino Sans", "Yu Gothic", sans-serif;
+	--body: Inter, "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+	--mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #10171e; --panel: #18222c; --ink: #e6edf3; --muted: #94a5b4; --line: #2c3a47;
+		--accent: #ffbf2e; --ok: #4cc79d; --err: #ff7a6b;
+		--ground: #1c2833; --road: #263441; --window: #ffe9a8; --shadow: rgba(0, 0, 0, .4);
+		--d-hall: #6f66b8; --d-archive: #4d927c; --d-workshop: #b96a4b; --d-tower: #4f84b8; --d-site: #b8963f; --d-depot: #6e7b88; --d-park: #4f8a5a;
+		--a1: #3f78e8; --a2: #1c9b74; --a3: #cf5038; --a4: #8459dc; --a5: #a17300; --a6: #1291a8;
+		color-scheme: dark;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #10171e; --panel: #18222c; --ink: #e6edf3; --muted: #94a5b4; --line: #2c3a47;
+	--accent: #ffbf2e; --ok: #4cc79d; --err: #ff7a6b;
+	--ground: #1c2833; --road: #263441; --window: #ffe9a8; --shadow: rgba(0, 0, 0, .4);
+	--d-hall: #6f66b8; --d-archive: #4d927c; --d-workshop: #b96a4b; --d-tower: #4f84b8; --d-site: #b8963f; --d-depot: #6e7b88; --d-park: #4f8a5a;
+	--a1: #3f78e8; --a2: #1c9b74; --a3: #cf5038; --a4: #8459dc; --a5: #a17300; --a6: #1291a8;
+	color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+	background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body);
+	padding-block: 20px 40px;
+	padding-left: max(16px, env(safe-area-inset-left, 0px));
+	padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1040px; margin-inline: auto; display: flex; flex-direction: column; gap: 16px; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+h1 { font: 700 28px/1.1 var(--display); margin: 0; letter-spacing: -.01em; }
+.sub { margin: 0; color: var(--muted); flex: 1 1 240px; min-width: 0; }
+.mode { font: 500 11px var(--mono); letter-spacing: .08em; padding: 3px 8px; border-radius: 3px; background: var(--ink); color: var(--bg); }
+.mode.live { background: var(--err); color: #fff; }
+
+.stage { background: var(--ground); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+canvas { display: block; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 10px 12px; list-style: none; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend b { color: var(--ink); font-weight: 600; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.bar button, .bar select { font: 500 13px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 7px 12px; cursor: pointer; }
+.bar button { min-width: 84px; background: var(--accent); border-color: var(--accent); color: #1a2530; font-weight: 600; }
+.bar button:focus-visible, .bar select:focus-visible, .bar input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.bar input[type=range] { flex: 1 1 180px; min-width: 0; accent-color: var(--accent); }
+.clock { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
+@media (max-width: 720px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.roster { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.roster li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 2px 10px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.badge { grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; color: #fff; font: 700 13px/26px var(--display); text-align: center; }
+.roster .name { font-weight: 600; overflow-wrap: anywhere; }
+.roster .state { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.roster .state b { color: var(--ink); font-weight: 600; }
+.roster li.off { opacity: .5; }
+.log { margin: 0; padding: 0; list-style: none; font: 12px/1.5 var(--mono); max-height: 340px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.log li { display: grid; grid-template-columns: 48px 20px minmax(0, 1fr); gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.log li:last-child { border-bottom: 0; }
+.log time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.log .n { width: 18px; height: 18px; border-radius: 50%; color: #fff; font: 700 10px/18px var(--display); text-align: center; }
+.log .txt { overflow-wrap: anywhere; }
+.log .txt b { font-weight: 500; }
+.log .bad { color: var(--err); }
+.empty { padding: 14px; color: var(--muted); font: 13px var(--body); }
+</style>
+
+<div class="wrap">
+	<header class="top">
+		<h1>Agent Town</h1>
+		<p class="sub" id="sub">サブエージェントの作業を、町の動きとして表示します。</p>
+		<span class="mode" id="mode">REPLAY</span>
+	</header>
+
+	<section class="stage" aria-label="町の様子">
+		<canvas id="town" role="img" aria-label="サブエージェントが建物のあいだを移動して作業する様子"></canvas>
+		<ul class="legend" id="legend"></ul>
+	</section>
+
+	<div class="bar" id="bar">
+		<button id="play" type="button">一時停止</button>
+		<select id="speed" aria-label="再生速度">
+			<option value="1">等速</option>
+			<option value="2" selected>2倍速</option>
+			<option value="5">5倍速</option>
+		</select>
+		<input id="seek" type="range" min="0" max="1000" value="0" aria-label="再生位置">
+		<span class="clock" id="clock">0:00 / 0:00</span>
+	</div>
+
+	<div class="cols">
+		<section>
+			<h2>エージェント</h2>
+			<ul class="roster" id="roster"></ul>
+		</section>
+		<section>
+			<h2>作業記録</h2>
+			<ul class="log" id="log"></ul>
+		</section>
+	</div>
+</div>
+
+<script id="town-data" type="application/json">null</script>
+<script>
+(() => {
+	const $ = (id) => document.getElementById(id);
+	const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+	// ---- 町の地図 (14x14 マス) -------------------------------------------
+	const N = 14, TW = 64, TH = 32, TOP = 96, LW = N * TW, LH = N * TH + TOP + 24;
+	const D = {
+		hall:     { name: '本部',     tools: '指示・報告',        r: [5.5, 5.5, 3, 3],    b: [5.9, 5.8, 2.2, 1.6, 62],  door: [6.2, 8.0] },
+		archive:  { name: '書庫',     tools: 'Read / Grep / Glob', r: [1, 1, 3.5, 3.5],    b: [1.4, 1.4, 2.1, 1.6, 50],  door: [1.7, 3.7] },
+		workshop: { name: '工房',     tools: 'Bash',               r: [9.5, 1, 3.5, 3.5],  b: [10, 1.4, 2.3, 1.6, 38],   door: [10.3, 3.7] },
+		tower:    { name: '通信塔',   tools: 'WebFetch / WebSearch', r: [1, 9.5, 3.5, 3.5], b: [1.7, 10, 1.1, 1.1, 104],  door: [1.6, 12.0] },
+		site:     { name: '建設現場', tools: 'Edit / Write',       r: [9.5, 9.5, 3.5, 3.5], b: [10, 10, 2.1, 1.5, 30],   door: [10.3, 12.2] },
+		depot:    { name: '倉庫',     tools: 'その他のツール',     r: [5.5, 10, 3, 3],     b: [5.9, 10.5, 2.2, 1.2, 28], door: [6.2, 12.3] },
+	};
+	const PARK = [5.5, 1, 3, 3];
+	const TREES = [[6, 1.6], [7.6, 2], [6.5, 3.2], [8, 3.4], [4.9, 6.2], [9, 7.8], [4.8, 12.6], [9, 5.2], [13.3, 6.5], [0.5, 7], [13.2, 13.2], [8.9, 12.8]];
+	const catOf = (tool) =>
+		/^(Read|Glob|Grep|NotebookRead)$/.test(tool) ? 'archive'
+		: /^(Bash|Monitor)$/.test(tool) ? 'workshop'
+		: /^Web(Fetch|Search)$/.test(tool) ? 'tower'
+		: /^(Edit|Write|NotebookEdit)$/.test(tool) ? 'site'
+		: /^(Agent|SendMessage|SubagentHandback|Task)/.test(tool) ? 'hall'
+		: 'depot';
+
+	$('legend').innerHTML = Object.entries(D).map(([k, d]) =>
+		`<li><i style="background:var(--d-${k})"></i><b>${d.name}</b>${esc(d.tools)}</li>`).join('');
+
+	// ---- データ -----------------------------------------------------------
+	let data = { agents: [], events: [] }, t0 = 0, t1 = 0, T = 0;
+	let live = false, playing = true, skew = 0;
+	const pos = new Map();
+
+	function load(d) {
+		data = d;
+		data.agents.forEach((a, i) => { a.n = i + 1; a.ev = d.events.filter((e) => e.a === a.id); });
+		t0 = d.events.length ? d.events[0].t : 0;
+		t1 = d.events.length ? d.events[d.events.length - 1].t : 0;
+	}
+
+	// 時刻 T にそのエージェントがどこで何をしているか
+	function stateAt(a, at) {
+		if (!a.start || at < a.start) return null;
+		let s = { where: 'hall', mode: 'think', label: '指示を受けています', detail: '' };
+		let open = null;
+		for (const e of a.ev) {
+			if (e.t > at) break;
+			if (e.k === 'tool') {
+				open = e.id;
+				s = { where: catOf(e.tool), mode: 'work', label: e.tool === 'SubagentHandback' ? '報告' : e.tool, detail: e.detail, err: false };
+			} else if (e.k === 'result' && e.id === open) {
+				s = { ...s, mode: 'think', err: e.err }; open = null;
+			} else if (e.k === 'done') {
+				s = { where: 'hall', mode: 'done', label: '完了', detail: '' };
+			}
+		}
+		return s;
+	}
+
+	// ---- 描画 -------------------------------------------------------------
+	const cv = $('town'), g = cv.getContext('2d');
+	let S = 1, C = {};
+	function readColors() {
+		const cs = getComputedStyle(document.documentElement);
+		for (const k of ['ink', 'panel', 'line', 'accent', 'ok', 'err', 'ground', 'road', 'window', 'shadow',
+			'd-hall', 'd-archive', 'd-workshop', 'd-tower', 'd-site', 'd-depot', 'd-park', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6'])
+			C[k] = cs.getPropertyValue('--' + k).trim();
+	}
+	function resize() {
+		const w = cv.clientWidth || 600, dpr = Math.min(window.devicePixelRatio || 1, 2);
+		S = w / LW;
+		cv.width = Math.round(w * dpr); cv.height = Math.round(LH * S * dpr);
+		g.setTransform(dpr, 0, 0, dpr, 0, 0);
+	}
+	const mix = (hex, f) => { // f<0 で暗く、f>0 で明るく
+		const n = parseInt(hex.slice(1), 16), to = f < 0 ? 0 : 255, k = Math.abs(f);
+		const ch = (v) => Math.round(v + (to - v) * k);
+		return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+	};
+	const P = (x, y, z = 0) => [(LW / 2 + (x - y) * TW / 2) * S, (TOP + (x + y) * TH / 2 - z) * S];
+	function poly(pts, fill, stroke) {
+		g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+		if (fill) { g.fillStyle = fill; g.fill(); }
+		if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1; g.stroke(); }
+	}
+	const flat = (x, y, w, d, fill, stroke) => poly([P(x, y), P(x + w, y), P(x + w, y + d), P(x, y + d)], fill, stroke);
+	function box(x, y, w, d, h, col) {
+		poly([P(x, y + d, h), P(x + w, y + d, h), P(x + w, y + d), P(x, y + d)], col);
+		poly([P(x + w, y, h), P(x + w, y + d, h), P(x + w, y + d), P(x + w, y)], mix(col, -.22));
+		poly([P(x, y, h), P(x + w, y, h), P(x + w, y + d, h), P(x, y + d, h)], mix(col, .28));
+	}
+	function building(key, busy, now) {
+		const d = D[key], [x, y, w, dd, h] = d.b, col = C['d-' + key];
+		box(x, y, w, dd, h, col);
+		const rows = h > 80 ? 4 : h > 45 ? 2 : 1, cols = w > 1.5 ? 3 : 1;
+		for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+			const x0 = x + w * (0.14 + c * (0.72 / cols)), ww = w * 0.5 / cols, z0 = h * (0.2 + r * 0.72 / rows), zh = h * 0.42 / rows;
+			poly([P(x0, y + dd, z0 + zh), P(x0 + ww, y + dd, z0 + zh), P(x0 + ww, y + dd, z0), P(x0, y + dd, z0)], busy ? C.accent : C.window);
+		}
+		if (key === 'tower') {
+			const a = P(x + w / 2, y + dd / 2, h), b = P(x + w / 2, y + dd / 2, h + 26);
+			g.strokeStyle = C.ink; g.lineWidth = 1.5; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+			g.fillStyle = busy && Math.floor(now / 300) % 2 ? C.err : C.accent; g.beginPath(); g.arc(b[0], b[1], 3, 0, 7); g.fill();
+		}
+		if (key === 'site') {
+			const a = P(x + 0.2, y + 0.2, h), b = P(x + 0.2, y + 0.2, h + 58), c = P(x + 1.9, y + 0.2, h + 58);
+			g.strokeStyle = C.accent; g.lineWidth = 2.5; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.lineTo(...c); g.stroke();
+		}
+		if (key === 'hall') {
+			const a = P(x + w - .3, y + .3, h), b = P(x + w - .3, y + .3, h + 30);
+			g.strokeStyle = C.ink; g.lineWidth = 1.5; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+			g.fillStyle = C.accent; g.fillRect(b[0], b[1], 12, 8);
+		}
+	}
+	function tree(x, y) {
+		const [bx, by] = P(x, y), r = Math.max(5, 9 * S);
+		g.fillStyle = C.shadow; g.beginPath(); g.ellipse(bx, by, r, r / 2, 0, 0, 7); g.fill();
+		g.strokeStyle = mix(C['d-park'], -.5); g.lineWidth = 2; g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, by - r * 1.4); g.stroke();
+		g.fillStyle = mix(C['d-park'], -.12); g.beginPath(); g.arc(bx, by - r * 2, r, 0, 7); g.fill();
+	}
+	function pill(text, cx, cy, bg, fg) {
+		g.font = '600 11px Inter, "Hiragino Sans", sans-serif';
+		const w = g.measureText(text).width + 12, h = 18;
+		const x = Math.min(Math.max(cx - w / 2, 2), cv.clientWidth - w - 2), y = Math.max(cy - h, 2);
+		g.fillStyle = bg; g.beginPath(); g.roundRect(x, y, w, h, 4); g.fill();
+		g.fillStyle = fg; g.textBaseline = 'middle'; g.fillText(text, x + 6, y + h / 2 + .5);
+	}
+	function worker(a, p, s, now) {
+		const [x, y] = P(p.x, p.y), k = Math.max(S, .62), col = C['a' + ((a.n - 1) % 6 + 1)];
+		const bob = p.moving ? Math.abs(Math.sin(now / 90)) * 3 * k : 0;
+		g.fillStyle = C.shadow; g.beginPath(); g.ellipse(x, y, 8 * k, 4 * k, 0, 0, 7); g.fill();
+		g.fillStyle = col; g.beginPath(); g.roundRect(x - 6 * k, y - 20 * k - bob, 12 * k, 18 * k, 3 * k); g.fill();
+		g.fillStyle = '#f3d2b3'; g.beginPath(); g.arc(x, y - 25 * k - bob, 5.5 * k, 0, 7); g.fill();
+		g.fillStyle = C.accent; g.beginPath(); g.arc(x, y - 26.5 * k - bob, 6 * k, Math.PI, 0); g.fill();
+		g.fillRect(x - 7.5 * k, y - 27 * k - bob, 15 * k, 1.8 * k);
+		p.sx = x; p.sy = y - 36 * k - bob;
+	}
+
+	function frame(now) {
+		const dt = Math.min((now - (frame.last || now)) / 1000, .1); frame.last = now;
+		const speed = Number($('speed').value);
+		if (live) T = Date.now() - skew;
+		else if (playing) { T = Math.min(T + dt * 1000 * speed, t1); if (T >= t1) setPlaying(false); }
+
+		const states = data.agents.map((a) => [a, stateAt(a, T)]);
+		const busy = {}, slot = {};
+		g.clearRect(0, 0, cv.width, cv.height);
+		flat(0, 0, N, N, C.road, C.line);
+		for (const [k, d] of Object.entries(D)) flat(...d.r, mix(C['d-' + k], .62));
+		flat(...PARK, mix(C['d-park'], .45));
+
+		const items = TREES.map(([x, y]) => ({ z: x + y, draw: () => tree(x, y) }));
+		for (const [a, s] of states) {
+			if (!s) { pos.delete(a.id); continue; }
+			const i = slot[s.where] = (slot[s.where] ?? -1) + 1;
+			if (s.mode === 'work') busy[s.where] = true;
+			const door = D[s.where].door, tx = door[0] + (i % 4) * 0.62, ty = door[1] + Math.floor(i / 4) * 0.6;
+			let p = pos.get(a.id);
+			if (!p) pos.set(a.id, p = { x: D.hall.door[0], y: D.hall.door[1] });
+			const dx = tx - p.x, dy = ty - p.y, dist = Math.hypot(dx, dy), step = 4.5 * dt * (live ? 1 : Math.max(speed, 1));
+			p.moving = dist > .02;
+			if (dist <= step || frame.snap) { p.x = tx; p.y = ty; } else { p.x += dx / dist * step; p.y += dy / dist * step; }
+			items.push({ z: p.x + p.y, draw: () => worker(a, p, s, now) });
+		}
+		frame.snap = false;
+		for (const k of Object.keys(D)) { const b = D[k].b; items.push({ z: b[0] + b[1] + (b[2] + b[3]) / 2, draw: () => building(k, busy[k], now) }); }
+		items.sort((p, q) => p.z - q.z).forEach((it) => it.draw());
+
+		for (const [k, d] of Object.entries(D)) { const [x, y] = P(d.b[0] + d.b[2] / 2, d.b[1] + d.b[3] / 2, d.b[4] + (k === 'tower' ? 34 : 10)); pill(d.name, x, y, C.panel, C.ink); }
+		for (const [a, s] of states) {
+			const p = pos.get(a.id); if (!s || !p) continue;
+			const dots = '.'.repeat(1 + Math.floor(now / 350) % 3);
+			const txt = s.mode === 'done' ? `${a.n} 完了 ✓` : p.moving ? `${a.n} 移動中` : s.mode === 'work' ? `${a.n} ${s.label}${dots}` : `${a.n} 考え中${dots}`;
+			pill(txt, p.sx, p.sy, s.mode === 'done' ? C.ok : C['a' + ((a.n - 1) % 6 + 1)], '#fff');
+		}
+		panels(states);
+		requestAnimationFrame(frame);
+	}
+
+	// ---- 下のパネル -------------------------------------------------------
+	const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+	let lastKey = '';
+	function panels(states) {
+		const shown = data.events.filter((e) => e.t <= T && e.k !== 'think' && !(e.k === 'result' && !e.err));
+		const key = states.map(([, s]) => s ? s.mode + s.label : '-').join('|') + shown.length;
+		$('clock').textContent = `${fmt(T - t0)} / ${fmt(t1 - t0)}`;
+		if (!live && document.activeElement !== $('seek')) $('seek').value = t1 > t0 ? Math.round((T - t0) / (t1 - t0) * 1000) : 0;
+		if (key === lastKey) return; lastKey = key;
+
+		$('roster').innerHTML = states.length ? states.map(([a, s]) => {
+			const st = !s ? 'まだ呼ばれていません'
+				: s.mode === 'done' ? `<b>完了</b> ツール ${a.tools} 回`
+				: s.mode === 'work' ? `<b>${esc(D[s.where].name)}で ${esc(s.label)}</b> ${esc(s.detail)}`
+				: `<b>考え中</b>${s.err ? ' 直前のツールが失敗' : ''}`;
+			return `<li class="${s ? '' : 'off'}"><span class="badge" style="background:var(--a${(a.n - 1) % 6 + 1})">${a.n}</span><span class="name">${esc(a.desc)} <span style="color:var(--muted);font-weight:400">${esc(a.type)}</span></span><span class="state">${st}</span></li>`;
+		}).join('') : '<li class="empty" style="display:block">サブエージェントはまだ起動していません。</li>';
+
+		const byId = Object.fromEntries(data.agents.map((a) => [a.id, a]));
+		$('log').innerHTML = shown.length ? shown.slice(-60).reverse().map((e) => {
+			const a = byId[e.a]; if (!a) return '';
+			const txt = e.k === 'spawn' ? '<b>起動</b>' : e.k === 'done' ? '<b>完了</b>'
+				: e.k === 'result' ? '<span class="bad">ツールが失敗</span>'
+				: `<b>${esc(e.tool)}</b> ${esc(e.detail)}`;
+			return `<li><time>${fmt(e.t - t0)}</time><span class="n" style="background:var(--a${(a.n - 1) % 6 + 1})">${a.n}</span><span class="txt">${txt}</span></li>`;
+		}).join('') : '<li class="empty" style="display:block">記録はまだありません。</li>';
+	}
+
+	// ---- 操作 -------------------------------------------------------------
+	function setPlaying(v) { playing = v; $('play').textContent = v ? '一時停止' : (T >= t1 ? 'もう一度' : '再生'); }
+	$('play').addEventListener('click', () => { if (!playing && T >= t1) { T = t0; frame.snap = true; pos.clear(); } setPlaying(!playing); });
+	$('seek').addEventListener('input', (e) => { T = t0 + (t1 - t0) * e.target.value / 1000; frame.snap = true; setPlaying(false); });
+	new ResizeObserver(resize).observe(cv);
+	new MutationObserver(readColors).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+	matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+
+	// ---- 起動 -------------------------------------------------------------
+	const embedded = JSON.parse($('town-data').textContent);
+	if (embedded) {
+		load(embedded);
+		$('sub').textContent = `記録済みセッションの再生です。サブエージェント ${data.agents.length} 体、ツール呼び出し ${data.events.filter((e) => e.k === 'tool').length} 回。`;
+		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+		T = still ? t1 : t0; setPlaying(!still);
+	} else {
+		live = true;
+		$('mode').textContent = 'LIVE'; $('mode').classList.add('live'); $('bar').hidden = true;
+		$('sub').textContent = '実行中のセッションをそのまま表示しています。';
+		const es = new EventSource('/events');
+		es.onmessage = (m) => { const d = JSON.parse(m.data); skew = Date.now() - d.now; load(d); lastKey = ''; };
+		es.onerror = () => { $('sub').textContent = 'サーバーに接続できません。node agent-town/server.mjs を起動してください。'; };
+	}
+	readColors(); resize(); requestAnimationFrame(frame);
+})();
+</script>
