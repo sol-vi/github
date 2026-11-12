@@ -7,7 +7,7 @@
     "black": "#111111",
     "gray": "#F2F4F7",
     "fontFamily": "\"Yu Gothic\", \"YuGothic\", \"游ゴシック\", \"Noto Sans JP\", sans-serif",
-    "fontScale": 0.92,
+    "fontScale": 0.90,
     "logo": "assets/thrive_logo.png",
     "logoWhite": "assets/thrive_logo_white.png",
     "logoWidth": 180,
