@@ -32,6 +32,7 @@
 	color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
 	background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body);
 	padding-block: 20px 40px;
@@ -70,25 +71,51 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 .roster .state b { color: var(--ink); font-weight: 600; }
 .roster li.off { opacity: .5; }
 .log { margin: 0; padding: 0; list-style: none; font: 12px/1.5 var(--mono); max-height: 340px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
-.log li { display: grid; grid-template-columns: 48px 20px minmax(0, 1fr); gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.log li { display: grid; grid-template-columns: 60px 20px minmax(0, 1fr); gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
 .log li:last-child { border-bottom: 0; }
 .log time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .log .n { width: 18px; height: 18px; border-radius: 50%; color: #fff; font: 700 10px/18px var(--display); text-align: center; }
 .log .txt { overflow-wrap: anywhere; }
 .log .txt b { font-weight: 500; }
 .log .bad { color: var(--err); }
+.tasks { margin: 0 0 16px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.tasks .head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; }
+.tasks .count { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.meter { height: 6px; margin: 8px 0 10px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ok); transition: width .3s; }
+.tasks ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.tasks li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 6px; overflow-wrap: anywhere; }
+.tasks li.completed { color: var(--muted); text-decoration: line-through; }
+.tasks li.in_progress { font-weight: 600; }
+.tasks .mark { font: 500 12px/1.7 var(--mono); }
+.tasks li.completed .mark { color: var(--ok); text-decoration: none; }
+.tasks li.in_progress .mark { color: var(--accent); }
+.live { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.live select { flex: 1 1 220px; min-width: 0; font: 500 13px var(--body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; }
+.live p { margin: 0; flex: 1 1 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.live p.bad { color: var(--err); }
+.switch { font: 600 13px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+.switch:focus-visible, .live select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.badge.main, .log .n.main { background: var(--ink); color: var(--bg); }
 .empty { padding: 14px; color: var(--muted); font: 13px var(--body); }
 </style>
 
 <div class="wrap">
 	<header class="top">
 		<h1>Agent Town</h1>
-		<p class="sub" id="sub">サブエージェントの作業を、町の動きとして表示します。</p>
+		<p class="sub" id="sub">Claude とサブエージェントの作業を、町の動きとして表示します。</p>
+		<button class="switch" id="golive" type="button" hidden>ライブで見る</button>
 		<span class="mode" id="mode">REPLAY</span>
 	</header>
 
+	<div class="live" id="livebox" hidden>
+		<label for="session">見るセッション</label>
+		<select id="session"></select>
+		<p id="livemsg"></p>
+	</div>
+
 	<section class="stage" aria-label="町の様子">
-		<canvas id="town" role="img" aria-label="サブエージェントが建物のあいだを移動して作業する様子"></canvas>
+		<canvas id="town" role="img" aria-label="Claude とサブエージェントが建物のあいだを移動して作業する様子"></canvas>
 		<ul class="legend" id="legend"></ul>
 	</section>
 
@@ -105,6 +132,7 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 
 	<div class="cols">
 		<section>
+			<div id="tasks"></div>
 			<h2>エージェント</h2>
 			<ul class="roster" id="roster"></ul>
 		</section>
@@ -119,17 +147,18 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 <script>
 (() => {
 	const $ = (id) => document.getElementById(id);
-	const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+	const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+	const clip = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
 	// ---- 町の地図 (14x14 マス) -------------------------------------------
 	const N = 14, TW = 64, TH = 32, TOP = 96, LW = N * TW, LH = N * TH + TOP + 24;
 	const D = {
-		hall:     { name: '本部',     tools: '指示・報告',        r: [5.5, 5.5, 3, 3],    b: [5.9, 5.8, 2.2, 1.6, 62],  door: [6.2, 8.0] },
-		archive:  { name: '書庫',     tools: 'Read / Grep / Glob', r: [1, 1, 3.5, 3.5],    b: [1.4, 1.4, 2.1, 1.6, 50],  door: [1.7, 3.7] },
-		workshop: { name: '工房',     tools: 'Bash',               r: [9.5, 1, 3.5, 3.5],  b: [10, 1.4, 2.3, 1.6, 38],   door: [10.3, 3.7] },
-		tower:    { name: '通信塔',   tools: 'WebFetch / WebSearch', r: [1, 9.5, 3.5, 3.5], b: [1.7, 10, 1.1, 1.1, 104],  door: [1.6, 12.0] },
-		site:     { name: '建設現場', tools: 'Edit / Write',       r: [9.5, 9.5, 3.5, 3.5], b: [10, 10, 2.1, 1.5, 30],   door: [10.3, 12.2] },
-		depot:    { name: '倉庫',     tools: 'その他のツール',     r: [5.5, 10, 3, 3],     b: [5.9, 10.5, 2.2, 1.2, 28], door: [6.2, 12.3] },
+		hall:     { name: '本部',     tools: '指示・報告・タスク管理', r: [5.5, 5.5, 3, 3],    b: [5.9, 5.8, 2.2, 1.6, 62],  door: [5.6, 8.0] },
+		archive:  { name: '書庫',     tools: 'Read / Grep / Glob',   r: [1, 1, 3.5, 3.5],    b: [1.4, 1.4, 2.1, 1.6, 50],  door: [1.7, 3.7] },
+		workshop: { name: '工房',     tools: 'Bash',                 r: [9.5, 1, 3.5, 3.5],  b: [10, 1.4, 2.3, 1.6, 38],   door: [10.3, 3.7] },
+		tower:    { name: '通信塔',   tools: 'WebFetch / WebSearch', r: [1, 9.5, 3.5, 3.5],  b: [1.7, 10, 1.1, 1.1, 104],  door: [1.6, 12.0] },
+		site:     { name: '建設現場', tools: 'Edit / Write',         r: [9.5, 9.5, 3.5, 3.5], b: [10, 10, 2.1, 1.5, 30],   door: [10.3, 12.2] },
+		depot:    { name: '倉庫',     tools: 'その他のツール',       r: [5.5, 10, 3, 3],     b: [5.9, 10.5, 2.2, 1.2, 28], door: [6.2, 12.3] },
 	};
 	const PARK = [5.5, 1, 3, 3];
 	const TREES = [[6, 1.6], [7.6, 2], [6.5, 3.2], [8, 3.4], [4.9, 6.2], [9, 7.8], [4.8, 12.6], [9, 5.2], [13.3, 6.5], [0.5, 7], [13.2, 13.2], [8.9, 12.8]];
@@ -138,41 +167,113 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 		: /^(Bash|Monitor)$/.test(tool) ? 'workshop'
 		: /^Web(Fetch|Search)$/.test(tool) ? 'tower'
 		: /^(Edit|Write|NotebookEdit)$/.test(tool) ? 'site'
-		: /^(Agent|SendMessage|SubagentHandback|Task)/.test(tool) ? 'hall'
+		: /^(Agent|SendMessage|SubagentHandback|Task|TodoWrite|AskUserQuestion)/.test(tool) ? 'hall'
 		: 'depot';
+	const shortTool = (tool) => tool === 'SubagentHandback' ? '報告' : clip(tool.replace(/^mcp__.*__/, ''), 20);
 
 	$('legend').innerHTML = Object.entries(D).map(([k, d]) =>
 		`<li><i style="background:var(--d-${k})"></i><b>${d.name}</b>${esc(d.tools)}</li>`).join('');
 
-	// ---- データ -----------------------------------------------------------
-	let data = { agents: [], events: [] }, t0 = 0, t1 = 0, T = 0;
-	let live = false, playing = true, skew = 0;
-	const pos = new Map();
-
-	function load(d) {
-		data = d;
-		data.agents.forEach((a, i) => { a.n = i + 1; a.ev = d.events.filter((e) => e.a === a.id); });
-		t0 = d.events.length ? d.events[0].t : 0;
-		t1 = d.events.length ? d.events[d.events.length - 1].t : 0;
+	// ---- 記録の解釈 ---------------------------------------------------------
+	// raw: {t, w, role, content, tur, meta}  w は 'main' かサブエージェントの鍵 (Agent 呼び出しの id)
+	function toRecords(x) {
+		const out = [], c = x.content;
+		const isPrompt = (s) => x.role === 'user' && x.w === 'main' && !x.meta && s && !/^\s*[<\[]/.test(s);
+		if (typeof c === 'string') { if (isPrompt(c)) out.push({ t: x.t, w: x.w, k: 'prompt', text: clip(c, 60) }); return out; }
+		for (const b of Array.isArray(c) ? c : []) {
+			if (x.role === 'assistant' && b.type === 'tool_use') {
+				const i = b.input || {};
+				const r = { t: x.t, w: x.w, k: 'tool', tool: b.name, id: b.id,
+					detail: b.name === 'SubagentHandback' ? '結果を本部へ報告'
+						: clip(i.description ?? i.command ?? i.file_path ?? i.pattern ?? i.url ?? i.query ?? i.subject ?? i.skill ?? i.prompt ?? i.path ?? '', 90) };
+				if (b.name === 'Agent' || b.name === 'Task') r.agent = { desc: clip(i.description || 'サブエージェント', 60), type: i.subagent_type || 'agent' };
+				if (b.name === 'TaskCreate') r.task = { subject: clip(i.subject, 80) };
+				if (b.name === 'TaskUpdate') r.task = { id: String(i.taskId), status: i.status, subject: i.subject && clip(i.subject, 80) };
+				if (b.name === 'TodoWrite' && Array.isArray(i.todos)) r.todos = i.todos.map((t) => ({ subject: clip(t.content, 80), status: t.status }));
+				out.push(r);
+			} else if (x.role === 'assistant' && b.type === 'thinking') out.push({ t: x.t, w: x.w, k: 'think' });
+			else if (x.role === 'assistant' && b.type === 'text') out.push({ t: x.t, w: x.w, k: 'text' });
+			else if (x.role === 'user' && b.type === 'tool_result') {
+				const txt = typeof b.content === 'string' ? b.content : '';
+				out.push({ t: x.t, w: x.w, k: 'result', id: b.tool_use_id, err: !!b.is_error,
+					taskId: x.tur?.task?.id ?? (txt.match(/^Task #(\d+) created/) || [])[1],
+					bg: !!x.tur?.isAsync || /^Async agent launched/.test(txt) });
+			} else if (b.type === 'text' && isPrompt(b.text)) out.push({ t: x.t, w: x.w, k: 'prompt', text: clip(b.text, 60) });
+		}
+		return out;
 	}
 
-	// 時刻 T にそのエージェントがどこで何をしているか
-	function stateAt(a, at) {
-		if (!a.start || at < a.start) return null;
-		let s = { where: 'hall', mode: 'think', label: '指示を受けています', detail: '' };
-		let open = null;
-		for (const e of a.ev) {
-			if (e.t > at) break;
-			if (e.k === 'tool') {
-				open = e.id;
-				s = { where: catOf(e.tool), mode: 'work', label: e.tool === 'SubagentHandback' ? '報告' : e.tool, detail: e.detail, err: false };
-			} else if (e.k === 'result' && e.id === open) {
-				s = { ...s, mode: 'think', err: e.err }; open = null;
-			} else if (e.k === 'done') {
-				s = { where: 'hall', mode: 'done', label: '完了', detail: '' };
+	let raws = [], metaAgents = [], recs = [], agents = [], t0 = 0, t1 = 0, T = 0;
+	let mode = 'replay', playing = true, skew = 0;
+	const pos = new Map();
+
+	function rebuild() {
+		recs = raws.flatMap(toRecords).sort((a, b) => a.t - b.t);
+		if (mode === 'replay') { // 何も起きていない待ち時間は 8 秒に詰める
+			let prev = null, w = 0;
+			for (const r of recs) { if (prev != null) w += Math.min(r.t - prev, 8000); prev = r.t; r.t = w; }
+		}
+		const map = new Map([['main', { key: 'main', desc: 'Claude', type: '指示役' }]]);
+		const ensure = (k) => { if (!map.has(k)) map.set(k, { key: k, desc: 'サブエージェント', type: 'agent' }); return map.get(k); };
+		const mainResult = new Map();
+		for (const r of recs) {
+			if (r.agent) Object.assign(ensure(r.id), r.agent, { spawnT: r.t });
+			ensure(r.w);
+			if (r.k === 'result' && r.w === 'main') mainResult.set(r.id, r);
+		}
+		for (const m of metaAgents) { const a = ensure(m.key); if (m.desc) a.desc = m.desc; if (m.type) a.type = m.type; a.finished = m.finished; }
+		for (const a of map.values()) {
+			a.desc ??= 'サブエージェント'; a.type ??= 'agent';
+			a.ev = recs.filter((r) => r.w === a.key);
+			a.tools = a.ev.filter((r) => r.k === 'tool').length;
+			a.start = a.spawnT ?? a.ev[0]?.t ?? null;
+			a.doneT = null;
+			if (a.key !== 'main') {
+				const hb = a.ev.find((r) => r.tool === 'SubagentHandback'), fg = mainResult.get(a.key);
+				if (hb) a.doneT = (a.ev.find((r) => r.k === 'result' && r.id === hb.id) || hb).t;
+				else if (a.finished && a.ev.length) a.doneT = a.ev[a.ev.length - 1].t;
+				else if (fg && !fg.bg) a.doneT = fg.t;
 			}
 		}
+		agents = [...map.values()].filter((a) => a.start != null).sort((a, b) => (a.key === 'main' ? -1 : b.key === 'main' ? 1 : a.start - b.start));
+		let n = 0; for (const a of agents) a.n = a.key === 'main' ? 0 : ++n;
+		t0 = recs.length ? recs[0].t : 0; t1 = recs.length ? recs[recs.length - 1].t : 0;
+		lastKey = '';
+	}
+
+	// 時刻 at にそのエージェントがどこで何をしているか
+	function stateAt(a, at) {
+		if (a.start == null || at < a.start) return null;
+		if (a.doneT != null && at >= a.doneT) return { where: 'hall', mode: 'done', label: '完了', detail: '', gone: at - a.doneT > 20000 };
+		let s = { where: 'hall', mode: 'think', label: '', detail: '' }, lastK = null, lastT = a.start;
+		const open = new Map(); // 並行して呼ばれたツールは、全部終わるまで作業中のまま
+		for (const e of a.ev) {
+			if (e.t > at) break;
+			lastK = e.k; lastT = e.t;
+			if (e.k === 'tool') { open.set(e.id, e); s = { where: catOf(e.tool), mode: 'work', label: shortTool(e.tool), detail: e.detail }; }
+			else if (e.k === 'result' && open.delete(e.id)) {
+				const rest = [...open.values()].pop();
+				s = rest ? { where: catOf(rest.tool), mode: 'work', label: shortTool(rest.tool), detail: rest.detail } : { ...s, mode: 'think', err: e.err };
+			}
+			else if (e.k === 'prompt') s = { where: 'hall', mode: 'think', label: '', detail: '' };
+		}
+		if (a.key === 'main' && s.mode === 'think' && lastK === 'text' && at - lastT > 4000) s = { ...s, where: 'hall', mode: 'idle' };
 		return s;
+	}
+	function tasksAt(at) {
+		let list = [];
+		for (const r of recs) {
+			if (r.t > at) break;
+			if (r.todos) list = r.todos.map((t, i) => ({ id: String(i), ...t }));
+			else if (r.k === 'tool' && r.tool === 'TaskCreate') list.push({ tool: r.id, id: null, subject: r.task.subject, status: 'pending' });
+			else if (r.k === 'result' && r.taskId) { const t = list.find((x) => x.tool === r.id); if (t) t.id = String(r.taskId); }
+			else if (r.k === 'tool' && r.tool === 'TaskUpdate') {
+				const t = list.find((x) => x.id === r.task.id); if (!t) continue;
+				if (r.task.status === 'deleted') list = list.filter((x) => x !== t);
+				else { if (r.task.status) t.status = r.task.status; if (r.task.subject) t.subject = r.task.subject; }
+			}
+		}
+		return list;
 	}
 
 	// ---- 描画 -------------------------------------------------------------
@@ -195,6 +296,7 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 		const ch = (v) => Math.round(v + (to - v) * k);
 		return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
 	};
+	const colorOf = (a) => a.n ? C['a' + ((a.n - 1) % 6 + 1)] : C.ink;
 	const P = (x, y, z = 0) => [(LW / 2 + (x - y) * TW / 2) * S, (TOP + (x + y) * TH / 2 - z) * S];
 	function poly(pts, fill, stroke) {
 		g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
@@ -243,13 +345,14 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 		g.fillStyle = bg; g.beginPath(); g.roundRect(x, y, w, h, 4); g.fill();
 		g.fillStyle = fg; g.textBaseline = 'middle'; g.fillText(text, x + 6, y + h / 2 + .5);
 	}
-	function worker(a, p, s, now) {
-		const [x, y] = P(p.x, p.y), k = Math.max(S, .62), col = C['a' + ((a.n - 1) % 6 + 1)];
+	function worker(a, p, now) {
+		const [x, y] = P(p.x, p.y), k = Math.max(S, .62) * (a.n ? 1 : 1.2);
 		const bob = p.moving ? Math.abs(Math.sin(now / 90)) * 3 * k : 0;
 		g.fillStyle = C.shadow; g.beginPath(); g.ellipse(x, y, 8 * k, 4 * k, 0, 0, 7); g.fill();
-		g.fillStyle = col; g.beginPath(); g.roundRect(x - 6 * k, y - 20 * k - bob, 12 * k, 18 * k, 3 * k); g.fill();
+		g.fillStyle = colorOf(a); g.beginPath(); g.roundRect(x - 6 * k, y - 20 * k - bob, 12 * k, 18 * k, 3 * k); g.fill();
 		g.fillStyle = '#f3d2b3'; g.beginPath(); g.arc(x, y - 25 * k - bob, 5.5 * k, 0, 7); g.fill();
-		g.fillStyle = C.accent; g.beginPath(); g.arc(x, y - 26.5 * k - bob, 6 * k, Math.PI, 0); g.fill();
+		g.fillStyle = a.n ? C.accent : C.window; g.strokeStyle = C.ink; g.lineWidth = 1; // 指示役は白いヘルメット
+		g.beginPath(); g.arc(x, y - 26.5 * k - bob, 6 * k, Math.PI, 0); g.fill(); if (!a.n) g.stroke();
 		g.fillRect(x - 7.5 * k, y - 27 * k - bob, 15 * k, 1.8 * k);
 		p.sx = x; p.sy = y - 36 * k - bob;
 	}
@@ -257,11 +360,11 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 	function frame(now) {
 		const dt = Math.min((now - (frame.last || now)) / 1000, .1); frame.last = now;
 		const speed = Number($('speed').value);
-		if (live) T = Date.now() - skew;
+		if (mode !== 'replay') T = Date.now() - skew;
 		else if (playing) { T = Math.min(T + dt * 1000 * speed, t1); if (T >= t1) setPlaying(false); }
 
-		const states = data.agents.map((a) => [a, stateAt(a, T)]);
-		const busy = {}, slot = {};
+		const states = agents.map((a) => [a, stateAt(a, T)]);
+		const busy = {}, slot = {}, tasks = tasksAt(T);
 		g.clearRect(0, 0, cv.width, cv.height);
 		flat(0, 0, N, N, C.road, C.line);
 		for (const [k, d] of Object.entries(D)) flat(...d.r, mix(C['d-' + k], .62));
@@ -269,57 +372,75 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 
 		const items = TREES.map(([x, y]) => ({ z: x + y, draw: () => tree(x, y) }));
 		for (const [a, s] of states) {
-			if (!s) { pos.delete(a.id); continue; }
+			if (!s || s.gone) { pos.delete(a.key); continue; }
 			const i = slot[s.where] = (slot[s.where] ?? -1) + 1;
 			if (s.mode === 'work') busy[s.where] = true;
-			const door = D[s.where].door, tx = door[0] + (i % 4) * 0.62, ty = door[1] + Math.floor(i / 4) * 0.6;
-			let p = pos.get(a.id);
-			if (!p) pos.set(a.id, p = { x: D.hall.door[0], y: D.hall.door[1] });
-			const dx = tx - p.x, dy = ty - p.y, dist = Math.hypot(dx, dy), step = 4.5 * dt * (live ? 1 : Math.max(speed, 1));
+			const door = D[s.where].door, tx = door[0] + (i % 5) * 0.62, ty = door[1] + Math.floor(i / 5) * 0.6;
+			let p = pos.get(a.key);
+			if (!p) pos.set(a.key, p = { x: D.hall.door[0], y: D.hall.door[1] });
+			const dx = tx - p.x, dy = ty - p.y, dist = Math.hypot(dx, dy), step = 4.5 * dt * (mode === 'replay' ? Math.max(speed, 1) : 1);
 			p.moving = dist > .02;
 			if (dist <= step || frame.snap) { p.x = tx; p.y = ty; } else { p.x += dx / dist * step; p.y += dy / dist * step; }
-			items.push({ z: p.x + p.y, draw: () => worker(a, p, s, now) });
+			items.push({ z: p.x + p.y, draw: () => worker(a, p, now) });
 		}
 		frame.snap = false;
 		for (const k of Object.keys(D)) { const b = D[k].b; items.push({ z: b[0] + b[1] + (b[2] + b[3]) / 2, draw: () => building(k, busy[k], now) }); }
 		items.sort((p, q) => p.z - q.z).forEach((it) => it.draw());
 
-		for (const [k, d] of Object.entries(D)) { const [x, y] = P(d.b[0] + d.b[2] / 2, d.b[1] + d.b[3] / 2, d.b[4] + (k === 'tower' ? 34 : 10)); pill(d.name, x, y, C.panel, C.ink); }
-		for (const [a, s] of states) {
-			const p = pos.get(a.id); if (!s || !p) continue;
-			const dots = '.'.repeat(1 + Math.floor(now / 350) % 3);
-			const txt = s.mode === 'done' ? `${a.n} 完了 ✓` : p.moving ? `${a.n} 移動中` : s.mode === 'work' ? `${a.n} ${s.label}${dots}` : `${a.n} 考え中${dots}`;
-			pill(txt, p.sx, p.sy, s.mode === 'done' ? C.ok : C['a' + ((a.n - 1) % 6 + 1)], '#fff');
+		const doneN = tasks.filter((t) => t.status === 'completed').length;
+		for (const [k, d] of Object.entries(D)) {
+			const [x, y] = P(d.b[0] + d.b[2] / 2, d.b[1] + d.b[3] / 2, d.b[4] + (k === 'tower' ? 34 : k === 'hall' ? 36 : 10));
+			pill(k === 'hall' && tasks.length ? `本部  タスク ${doneN}/${tasks.length}` : d.name, x, y, C.panel, C.ink);
 		}
-		panels(states);
+		for (const [a, s] of states) {
+			const p = pos.get(a.key); if (!s || s.gone || !p) continue;
+			const dots = '.'.repeat(1 + Math.floor(now / 350) % 3), who = a.n || 'Claude';
+			const txt = s.mode === 'done' ? `${who} 完了 ✓` : s.mode === 'idle' ? `${who} 指示待ち` : p.moving ? `${who} 移動中`
+				: s.mode === 'work' ? `${who} ${s.label}${dots}` : `${who} 考え中${dots}`;
+			pill(txt, p.sx, p.sy, s.mode === 'done' ? C.ok : colorOf(a), a.n || s.mode === 'done' ? '#fff' : C.panel);
+		}
+		panels(states, tasks);
 		requestAnimationFrame(frame);
 	}
 
 	// ---- 下のパネル -------------------------------------------------------
 	const fmt = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+	const stamp = (t) => mode === 'replay' ? fmt(t - t0) : new Date(t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+	const badge = (a, cls) => `<span class="${cls}${a.n ? '' : ' main'}"${a.n ? ` style="background:var(--a${(a.n - 1) % 6 + 1})"` : ''}>${a.n || 'C'}</span>`;
 	let lastKey = '';
-	function panels(states) {
-		const shown = data.events.filter((e) => e.t <= T && e.k !== 'think' && !(e.k === 'result' && !e.err));
-		const key = states.map(([, s]) => s ? s.mode + s.label : '-').join('|') + shown.length;
-		$('clock').textContent = `${fmt(T - t0)} / ${fmt(t1 - t0)}`;
-		if (!live && document.activeElement !== $('seek')) $('seek').value = t1 > t0 ? Math.round((T - t0) / (t1 - t0) * 1000) : 0;
+	function panels(states, tasks) {
+		const shown = recs.filter((e) => e.t <= T && (e.k === 'tool' || e.k === 'prompt' || (e.k === 'result' && e.err)));
+		const key = states.map(([, s]) => s ? s.mode + s.label + s.detail + !!s.gone : '-').join('|') + shown.length + tasks.map((t) => t.status).join('');
+		if (mode === 'replay') {
+			$('clock').textContent = `${fmt(T - t0)} / ${fmt(t1 - t0)}`;
+			if (document.activeElement !== $('seek')) $('seek').value = t1 > t0 ? Math.round((T - t0) / (t1 - t0) * 1000) : 0;
+		}
 		if (key === lastKey) return; lastKey = key;
 
-		$('roster').innerHTML = states.length ? states.map(([a, s]) => {
-			const st = !s ? 'まだ呼ばれていません'
-				: s.mode === 'done' ? `<b>完了</b> ツール ${a.tools} 回`
+		const doneN = tasks.filter((t) => t.status === 'completed').length;
+		$('tasks').innerHTML = tasks.length ? `<div class="tasks"><div class="head"><span>タスク</span><span class="count">${doneN} / ${tasks.length} 完了</span></div>
+			<div class="meter"><i style="width:${Math.round(doneN / tasks.length * 100)}%"></i></div>
+			<ul>${tasks.map((t) => `<li class="${esc(t.status)}"><span class="mark">${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : '・'}</span><span>${esc(t.subject)}</span></li>`).join('')}</ul></div>` : '';
+
+		const live = states.filter(([, s]) => s && !s.gone), past = states.filter(([, s]) => s && s.gone);
+		const row = ([a, s]) => {
+			const st = s.mode === 'done' ? `<b>完了</b> ツール ${a.tools} 回`
+				: s.mode === 'idle' ? '<b>指示待ち</b>'
 				: s.mode === 'work' ? `<b>${esc(D[s.where].name)}で ${esc(s.label)}</b> ${esc(s.detail)}`
 				: `<b>考え中</b>${s.err ? ' 直前のツールが失敗' : ''}`;
-			return `<li class="${s ? '' : 'off'}"><span class="badge" style="background:var(--a${(a.n - 1) % 6 + 1})">${a.n}</span><span class="name">${esc(a.desc)} <span style="color:var(--muted);font-weight:400">${esc(a.type)}</span></span><span class="state">${st}</span></li>`;
-		}).join('') : '<li class="empty" style="display:block">サブエージェントはまだ起動していません。</li>';
+			return `<li class="${s.gone ? 'off' : ''}">${badge(a, 'badge')}<span class="name">${esc(a.desc)} <span style="color:var(--muted);font-weight:400">${esc(a.type)}</span></span><span class="state">${st}</span></li>`;
+		};
+		$('roster').innerHTML = (live.map(row).join('') + past.slice(-4).reverse().map(row).join('')
+			+ (past.length > 4 ? `<li class="empty" style="display:block">ほか ${past.length - 4} 体は完了済みです。</li>` : ''))
+			|| '<li class="empty" style="display:block">まだ記録がありません。</li>';
 
-		const byId = Object.fromEntries(data.agents.map((a) => [a.id, a]));
-		$('log').innerHTML = shown.length ? shown.slice(-60).reverse().map((e) => {
-			const a = byId[e.a]; if (!a) return '';
-			const txt = e.k === 'spawn' ? '<b>起動</b>' : e.k === 'done' ? '<b>完了</b>'
+		const byKey = Object.fromEntries(agents.map((a) => [a.key, a]));
+		$('log').innerHTML = shown.length ? shown.slice(-80).reverse().map((e) => {
+			const a = byKey[e.w]; if (!a) return '';
+			const txt = e.k === 'prompt' ? `<b>ユーザーの指示</b> ${esc(e.text)}`
 				: e.k === 'result' ? '<span class="bad">ツールが失敗</span>'
-				: `<b>${esc(e.tool)}</b> ${esc(e.detail)}`;
-			return `<li><time>${fmt(e.t - t0)}</time><span class="n" style="background:var(--a${(a.n - 1) % 6 + 1})">${a.n}</span><span class="txt">${txt}</span></li>`;
+				: `<b>${esc(shortTool(e.tool))}</b> ${esc(e.detail)}`;
+			return `<li><time>${stamp(e.t)}</time>${badge(a, 'n')}<span class="txt">${txt}</span></li>`;
 		}).join('') : '<li class="empty" style="display:block">記録はまだありません。</li>';
 	}
 
@@ -331,19 +452,110 @@ h2 { font: 500 12px var(--display); letter-spacing: .1em; text-transform: upperc
 	new MutationObserver(readColors).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 	matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
 
+	function setMode(m) {
+		mode = m;
+		const live = m !== 'replay';
+		$('mode').textContent = live ? 'LIVE' : 'REPLAY'; $('mode').classList.toggle('live', live);
+		$('bar').hidden = live; $('livebox').hidden = m !== 'mcp';
+		pos.clear(); frame.snap = true;
+	}
+
+	// ---- ライブ (クラウドのセッションを Claude Code Remote 経由で読む) -----
+	const SERVER = 'Claude Code Remote';
+	let mcp = null, cursor = null, timer = null, watching = null;
+	const liveMeta = new Map(); // 呼び出し元が読み込み範囲の外にあるサブエージェントの名前
+	const say = (msg, bad) => { $('livemsg').textContent = msg; $('livemsg').classList.toggle('bad', !!bad); };
+	const unwrap = (res) => {
+		let p = res?.payload ?? res;
+		if (typeof p === 'string') { const i = p.indexOf('{'), j = p.lastIndexOf('}'); try { p = JSON.parse(p.slice(i, j + 1)); } catch { p = {}; } }
+		return p?.ccr ?? p ?? {};
+	};
+	const explain = (e) => ({
+		needs_reauth: 'Claude Code Remote の接続が切れています。claude.ai の「設定 → コネクタ」でつなぎ直してください。',
+		server_not_connected: 'この端末のアカウントに Claude Code Remote がありません。claude.ai の「設定 → コネクタ」で追加してください。',
+		not_in_manifest: 'このページからセッションを読む許可がありません。ページの権限メニューで許可してください。',
+		approval_required: 'セッションを読むには許可が必要です。もう一度「ライブで見る」を押して許可してください。',
+		consent_required: 'セッションを読むには許可が必要です。もう一度「ライブで見る」を押して許可してください。',
+		blocked_by_policy: '組織の設定で、このページからの読み取りが止められています。',
+		not_granted: 'この画面ではライブ表示を使えません。',
+		capability_disabled: 'この画面ではライブ表示を使えません。',
+	}[e?.code] || `読み取りに失敗しました (${e?.code || '不明'})。少し待ってからやり直してください。`);
+	const fromEvent = (it) => {
+		const role = it.assistant ? 'assistant' : it.user ? 'user' : null; if (!role) return null;
+		const x = it[role].internal_anthropic_catchall || it[role];
+		const t = Date.parse(x.timestamp || it.created_at); if (!t || !x.message) return null;
+		const w = x.parent_tool_use_id || 'main';
+		if (w !== 'main' && (x.task_description || x.subagent_type) && !liveMeta.has(w)) liveMeta.set(w, { key: w, desc: x.task_description, type: x.subagent_type });
+		return { t, w, role, content: x.message.content, tur: x.tool_use_result, meta: x.isMeta };
+	};
+	const page = async (args) => unwrap(await mcp.callTool(SERVER, 'list_events', { session_id: watching, limit: 100, kinds: ['user', 'assistant'], ...args }, { cache: false }));
+
+	async function watch(id) {
+		clearTimeout(timer); watching = id; raws = []; metaAgents = []; liveMeta.clear(); cursor = null; rebuild();
+		say('記録を読み込んでいます…');
+		try {
+			let p = await page({}); cursor = p.last_id || null;
+			const pages = [p];
+			for (let i = 0; i < 3 && p.has_more && p.first_id && watching === id; i++) { p = await page({ before_id: p.first_id }); pages.unshift(p); }
+			if (watching !== id) return;
+			raws = pages.flatMap((q) => (q.data || []).map(fromEvent).filter(Boolean)); metaAgents = [...liveMeta.values()]; rebuild();
+			say('3 秒ごとに更新しています。古い記録は直近の分だけ読み込みます。');
+			poll(id);
+		} catch (e) { say(explain(e), true); }
+	}
+	function poll(id) {
+		timer = setTimeout(async () => {
+			if (watching !== id) return;
+			if (document.hidden || !cursor) return poll(id);
+			try {
+				const p = await page({ after_id: cursor });
+				if (watching !== id) return;
+				const add = (p.data || []).map(fromEvent).filter(Boolean);
+				if (p.last_id) cursor = p.last_id;
+				if (add.length) { raws.push(...add); metaAgents = [...liveMeta.values()]; if (raws.length > 4000) raws = raws.slice(-3000); rebuild(); }
+				say(`3 秒ごとに更新しています。最終確認 ${new Date().toLocaleTimeString('ja-JP')}`);
+				poll(id);
+			} catch (e) {
+				say(explain(e), true);
+				if (e?.retryable) timer = setTimeout(() => poll(id), Math.max(e.retryAfterMs || 0, 10000));
+			}
+		}, 3000);
+	}
+	async function goLive() {
+		setMode('mcp'); skew = 2000; raws = []; metaAgents = []; rebuild();
+		$('golive').textContent = '録画に戻る';
+		$('sub').textContent = '実行中のセッションをそのまま表示しています。';
+		say('セッションの一覧を読み込んでいます…');
+		try {
+			const tools = (await mcp.listTools(SERVER)).servers?.[0]?.tools?.map((t) => t.name) || [];
+			if (tools.length && !tools.includes('list_events')) return say('この端末のアカウントでは、セッションの記録を読む機能が提供されていません。', true);
+			const list = unwrap(await mcp.callTool(SERVER, 'list_sessions', { limit: 15 }, { cache: false })).data || [];
+			if (!list.length) return say('セッションが見つかりません。', true);
+			$('session').innerHTML = list.map((s) => `<option value="${esc(s.id)}">${esc(clip(s.title || s.id, 40))}${/RUNNING/.test(s.session_status || '') ? '（実行中）' : ''}</option>`).join('');
+			watch(list[0].id);
+		} catch (e) { say(explain(e), true); }
+	}
+	$('session').addEventListener('change', (e) => watch(e.target.value));
+	$('golive').addEventListener('click', () => {
+		if (mode === 'mcp') { clearTimeout(timer); watching = null; $('golive').textContent = 'ライブで見る'; startReplay(); } else goLive();
+	});
+
 	// ---- 起動 -------------------------------------------------------------
 	const embedded = JSON.parse($('town-data').textContent);
-	if (embedded) {
-		load(embedded);
-		$('sub').textContent = `記録済みセッションの再生です。サブエージェント ${data.agents.length} 体、ツール呼び出し ${data.events.filter((e) => e.k === 'tool').length} 回。`;
+	function startReplay() {
+		setMode('replay'); raws = embedded.raw; metaAgents = embedded.agents; rebuild();
+		$('sub').textContent = `記録済みセッションの再生です。待ち時間は 8 秒までに詰めています。`;
 		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 		T = still ? t1 : t0; setPlaying(!still);
+	}
+	if (embedded) {
+		startReplay();
+		window.claude?.use?.('mcp').then((m) => { if (m) { mcp = m; $('golive').hidden = false; } }).catch(() => {});
 	} else {
-		live = true;
-		$('mode').textContent = 'LIVE'; $('mode').classList.add('live'); $('bar').hidden = true;
+		setMode('sse');
 		$('sub').textContent = '実行中のセッションをそのまま表示しています。';
 		const es = new EventSource('/events');
-		es.onmessage = (m) => { const d = JSON.parse(m.data); skew = Date.now() - d.now; load(d); lastKey = ''; };
+		es.onmessage = (m) => { const d = JSON.parse(m.data); skew = Date.now() - d.now; raws = d.raw; metaAgents = d.agents; rebuild(); };
 		es.onerror = () => { $('sub').textContent = 'サーバーに接続できません。node agent-town/server.mjs を起動してください。'; };
 	}
 	readColors(); resize(); requestAnimationFrame(frame);
